@@ -81,7 +81,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .logo {
   display: block;
-  width: 219.3px;
+  width: 219.33px;
   max-width: calc(100% - 12px);
   height: auto;
 }
@@ -170,7 +170,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   overflow: hidden;
 }
 
-.fig.big { font-size: 26px; }
+/* Max. Einkaufspreis: nicht editierbarer Kasten im Stil des Margen-Feldes, Schrift wie GIK */
+.ek-box {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+}
 
 .fig.warn { color: var(--warning); }
 
@@ -276,6 +283,23 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hint {
   font-size: 13px;
   white-space: nowrap;
+}
+
+/* Schalter unter dem Regler (Tilgung einrechnen) */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.check-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 /* Zahlenfeld (Pill) */

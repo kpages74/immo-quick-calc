@@ -20,7 +20,7 @@
     <div class="sticky-top">
       <header class="topbar">
         <span aria-hidden="true"></span>
-        <h1 class="title"><img class="logo" src="icons/logo.png" width="658" height="335" alt="Elegnt Living QuickCalc"></h1>
+        <h1 class="title"><img class="logo" src="icons/logo.png" width="658" height="298" alt="Elegnt Living QuickCalc"></h1>
         <button type="button" id="open-settings" class="icon-btn" aria-label="Einstellungen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
             <circle cx="12" cy="12" r="6.2"/>
@@ -37,7 +37,7 @@
         <div class="result-grid">
           <div class="cell">
             <div class="cap">Max. Einkaufspreis</div>
-            <div class="fig big fit" id="h-max"></div>
+            <div class="ek-box"><div class="fig fit" id="h-max"></div></div>
             <div class="sub fit" id="h-max-sqm"></div>
             <div class="warn-text" id="h-max-warn" hidden>Bei diesen Kosten kein Ankauf möglich</div>
           </div>
@@ -73,14 +73,14 @@
     </section>
     <section class="set-sec">
       <button type="button" class="btn btn-danger" id="btn-reset">Alle Eingaben zurücksetzen</button>
-      <p class="set-foot">Setzt Objektwerte und Parameter beider Seiten auf die Standardwerte zurück; die Einstellungen bleiben.</p>
+      <p class="set-foot">Setzt Objektwerte, Parameter beider Seiten und die Finanzierung auf die Standardwerte zurück; die Einstellungen bleiben.</p>
     </section>
     <button type="button" class="btn btn-primary" id="btn-settings-done">Fertig</button>
   </dialog>
 
   <dialog id="dlg-reset" aria-labelledby="reset-title">
     <h2 id="reset-title" class="dlg-title">Alle Eingaben zurücksetzen?</h2>
-    <p class="set-foot">Objektwerte und Parameter beider Seiten werden auf die Standardwerte gesetzt.</p>
+    <p class="set-foot">Objektwerte, Parameter beider Seiten und die Finanzierung werden auf die Standardwerte gesetzt.</p>
     <div class="dlg-actions">
       <button type="button" class="btn" id="btn-reset-cancel">Abbrechen</button>
       <button type="button" class="btn btn-danger" id="btn-reset-confirm">Zurücksetzen</button>

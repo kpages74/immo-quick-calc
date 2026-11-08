@@ -3,6 +3,7 @@ import {
   defaultParameters,
   DEFAULT_INPUTS,
   DEFAULT_SETTINGS,
+  DEFAULT_FINANCING,
   FIELDS,
   Fmt,
   parseNumber,
@@ -19,10 +20,14 @@ const STORAGE_KEYS = {
   vermietet: 'iqc.page.vermietet',
   kap: 'iqc.page.kap',
   leerstehend: 'iqc.page.leerstehend',
+  financing: 'iqc.financing',
 };
 
 // Felder, die in parameters statt in inputs liegen.
 const PARAM_KEYS = new Set(['targetMargin', 'salesCommission', 'rentPerSqm', 'targetYield']);
+
+// Felder der Finanzierung (global, nicht je Seite).
+const FINANCING_KEYS = new Set(['loanPercent', 'interestPercent', 'repaymentPercent', 'durationMonths']);
 
 // Datensatz je Kalkulationsart.
 const PAGE_KEY = { vermietet: 'vermietet', kap: 'kap', en: 'leerstehend' };
@@ -52,6 +57,7 @@ const state = {
     kap: makePage('kap'),
     leerstehend: makePage('en'),
   },
+  financing: { ...DEFAULT_FINANCING },
 };
 
 function currentKind() {
@@ -83,6 +89,16 @@ function writeJSON(key, value) {
 }
 
 const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
+
+function sanitizeFinancing(raw) {
+  const financing = { ...DEFAULT_FINANCING };
+  if (!raw || typeof raw !== 'object') return financing;
+  for (const key of FINANCING_KEYS) {
+    if (isFiniteNumber(raw[key])) financing[key] = raw[key];
+  }
+  if (typeof raw.repaymentEnabled === 'boolean') financing.repaymentEnabled = raw.repaymentEnabled;
+  return financing;
+}
 
 function sanitizePage(raw, kind) {
   const page = makePage(kind);
@@ -116,6 +132,7 @@ function loadState() {
   state.pages.vermietet = sanitizePage(readJSON(STORAGE_KEYS.vermietet), 'vermietet');
   state.pages.kap = sanitizePage(readJSON(STORAGE_KEYS.kap), 'kap');
   state.pages.leerstehend = sanitizePage(readJSON(STORAGE_KEYS.leerstehend), 'en');
+  state.financing = sanitizeFinancing(readJSON(STORAGE_KEYS.financing));
 }
 
 function saveState() {
@@ -125,6 +142,7 @@ function saveState() {
   writeJSON(STORAGE_KEYS.vermietet, state.pages.vermietet);
   writeJSON(STORAGE_KEYS.kap, state.pages.kap);
   writeJSON(STORAGE_KEYS.leerstehend, state.pages.leerstehend);
+  writeJSON(STORAGE_KEYS.financing, state.financing);
 }
 
 function changed() {
@@ -270,12 +288,18 @@ function numberField({ spec, get, set, header = false, display, clamp }) {
 
 // MARK: - Zeilen
 
-function inputRow(key, { hint = null } = {}) {
+/** Objekt, in dem der Wert eines Feldes liegt: Seite (Eingaben oder Parameter) oder Finanzierung. */
+function holderOf(key) {
+  if (FINANCING_KEYS.has(key)) return state.financing;
+  if (PARAM_KEYS.has(key)) return currentPage().parameters;
+  return currentPage().inputs;
+}
+
+function inputRow(key, { hint = null, toggle = null } = {}) {
   const spec = FIELDS[key];
-  const source = (page) => (PARAM_KEYS.has(key) ? page.parameters : page.inputs);
-  const get = () => source(currentPage())[key];
+  const get = () => holderOf(key)[key];
   const set = (value) => {
-    source(currentPage())[key] = value;
+    holderOf(key)[key] = value;
     changed();
   };
 
@@ -299,6 +323,20 @@ function inputRow(key, { hint = null } = {}) {
 
   root.append(head, slider);
 
+  // Optionaler Schalter unter dem Regler (z. B. „Tilgung einrechnen“). Der Regler bleibt bedienbar.
+  let check = null;
+  if (toggle) {
+    const checkLabel = el('label', 'check-row');
+    check = el('input');
+    check.type = 'checkbox';
+    check.addEventListener('change', () => {
+      state.financing[toggle.key] = check.checked;
+      changed();
+    });
+    checkLabel.append(check, document.createTextNode(` ${toggle.label}`));
+    root.append(checkLabel);
+  }
+
   return {
     el: root,
     update(result) {
@@ -307,6 +345,7 @@ function inputRow(key, { hint = null } = {}) {
       slider.value = String(value);
       slider.style.setProperty('--pos', `${sliderFraction(key, value) * 100}%`);
       setHint(hintEl, hint ? hint(result) : null);
+      if (check) check.checked = Boolean(state.financing[toggle.key]);
     },
   };
 }
@@ -421,6 +460,26 @@ function buildForm(kind) {
     addRow(salesGroup, inputRow('parkingSalePrice'));
     addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
   }
+
+  // Finanzierung: global für alle Seiten, letzte Gruppe. Mit Button „Standard“.
+  const financingStandard = el('button', 'std-btn', 'Standard');
+  financingStandard.type = 'button';
+  financingStandard.addEventListener('click', () => {
+    state.financing = { ...DEFAULT_FINANCING };
+    changed();
+  });
+  const financingGroup = addGroup('Finanzierung', financingStandard);
+  addRow(financingGroup, inputRow('loanPercent', { hint: (r) => Fmt.currency(r.loanAmount) }));
+  addRow(financingGroup, inputRow('interestPercent', { hint: (r) => Fmt.currency(r.financingInterest) }));
+  addRow(financingGroup, inputRow('repaymentPercent', {
+    hint: (r) => Fmt.currency(r.financingRepayment),
+    toggle: { label: 'Tilgung einrechnen', key: 'repaymentEnabled' },
+  }));
+  addRow(financingGroup, inputRow('durationMonths'));
+  addRow(financingGroup, lockedRow('Finanzierungskosten', {
+    hint: () => null,
+    value: (r) => Fmt.currency(r.financingCosts),
+  }));
 }
 
 function buildCell4(kind) {
@@ -490,6 +549,7 @@ function resetAll() {
   state.pages.vermietet = makePage('vermietet');
   state.pages.kap = makePage('kap');
   state.pages.leerstehend = makePage('en');
+  state.financing = { ...DEFAULT_FINANCING };
   changed();
 }
 
@@ -499,7 +559,7 @@ function render() {
   ensureForm();
   const kind = currentKind();
   const page = currentPage();
-  const result = compute(kind, page.inputs, page.parameters, state.settings);
+  const result = compute(kind, page.inputs, page.parameters, state.settings, state.financing);
 
   updateHeader(result);
   marginField.sync();

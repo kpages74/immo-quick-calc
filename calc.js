@@ -26,6 +26,18 @@ export const DEFAULT_SETTINGS = Object.freeze({
   closingCostMode: CLOSING_MODE.EURO,
 });
 
+/** Standardwerte der Finanzierung (FinancingInputs in Models.swift). Prozentwerte als Prozentzahl. */
+export const DEFAULT_FINANCING = Object.freeze({
+  loanPercent: 100,
+  interestPercent: 4.7,
+  repaymentPercent: 1.5,
+  repaymentEnabled: true,
+  durationMonths: 6,
+});
+
+/** Ohne Finanzierung: Finanzierungshöhe 0 %. Standard von compute(). */
+export const NO_FINANCING = Object.freeze({ ...DEFAULT_FINANCING, loanPercent: 0 });
+
 /** Standardparameter je Kalkulationsart (CalcParameters.defaults(kind:)). */
 export function defaultParameters(kind) {
   return {
@@ -55,6 +67,10 @@ export const FIELDS = Object.freeze({
   otherCosts: { label: 'Sonstige Kosten', unit: 'euro', min: 0, max: 100000, step: 100, digits: 0 },
   targetMargin: { label: 'Zielmarge', unit: 'percent', min: 0, max: 100, step: 0.5, digits: 1 },
   salesCommission: { label: 'Vertriebskosten', unit: 'percent', min: 0, max: 20, step: 0.5, digits: 1 },
+  loanPercent: { label: 'Finanzierungshöhe', unit: 'percent', min: 0, max: 200, step: 1, digits: 0 },
+  interestPercent: { label: 'Zinsen', unit: 'percent', min: 0, max: 15, step: 0.1, digits: 1 },
+  repaymentPercent: { label: 'Tilgung', unit: 'percent', min: 0, max: 10, step: 0.1, digits: 1 },
+  durationMonths: { label: 'Projektlaufzeit', unit: 'months', min: 1, max: 60, step: 1, digits: 0 },
 });
 
 /** Begrenzt einen Wert auf den Bereich des Feldes (z. B. Zielmarge 0…100). */
@@ -84,6 +100,10 @@ function emptyResult(extra) {
     marginPercent: null,
     maxPurchasePrice: null,
     maxPurchasePricePerSqm: null,
+    loanAmount: null,
+    financingInterest: null,
+    financingRepayment: null,
+    financingCosts: null,
     closingCosts: null,
     totalInvestment: null,
     totalInvestmentPerSqm: null,
@@ -100,8 +120,9 @@ function emptyResult(extra) {
 /**
  * Rechnung wie CalcEngine.compute(kind:inputs:parameters:settings:).
  * kind: 'vermietet' | 'kap' | 'en'. Ergebnisse sind null, wenn nicht berechenbar („–“).
+ * financing: Finanzierung (global). Mit loanPercent 0 wird ohne Finanzierung gerechnet.
  */
-export function compute(kind, inputs, params, settings) {
+export function compute(kind, inputs, params, settings, financing = NO_FINANCING) {
   const area = nonNegative(inputs.livingArea);
   const parkingPrice = nonNegative(inputs.parkingSalePrice);
   const rent = nonNegative(inputs.rent);
@@ -162,18 +183,42 @@ export function compute(kind, inputs, params, settings) {
   // 3. Marge in Euro
   const marginEuro = totalBasis ? netto - netto / (1 + m) : vk * m;
 
-  // 4. Maximaler Einkaufspreis (EK)
-  const maxPurchase = percentMode
-    ? (netto - marginEuro - k) / (1 + closingPercent / 100)
-    : netto - marginEuro - closingEuro - k;
+  // 4. Finanzierung: f = Höhe, r = (Zins + Tilgung) × T / 12. Tilgung 0, wenn der Schalter aus ist.
+  const f = nonNegative(financing.loanPercent) / 100;
+  const z = nonNegative(financing.interestPercent) / 100;
+  const t = financing.repaymentEnabled ? nonNegative(financing.repaymentPercent) / 100 : 0;
+  const months = nonNegative(financing.durationMonths);
+  const rate = ((z + t) * months) / 12;
+  const financingFactor = f * rate;
 
-  // 5. Kaufnebenkosten in Euro
+  // 5. Maximaler Einkaufspreis (EK). Finanzierung mindert den EK, die Zielmarge bleibt.
+  //    Zähler <= 0: wie ohne Finanzierung, Finanzierungskosten 0.
+  let maxPurchase;
+  let financed;
+  if (percentMode) {
+    const numerator = netto - marginEuro - k;
+    const p = closingPercent / 100;
+    financed = numerator > 0;
+    maxPurchase = financed ? numerator / (1 + p + financingFactor) : numerator / (1 + p);
+  } else {
+    const numerator = netto - marginEuro - closingEuro - k;
+    financed = numerator > 0;
+    maxPurchase = financed ? numerator / (1 + financingFactor) : numerator;
+  }
+
+  // 6. Darlehen und Finanzierungskosten (Zinsen + Tilgung über die Laufzeit)
+  const loanAmount = financed ? f * maxPurchase : 0;
+  const financingInterest = (loanAmount * z * months) / 12;
+  const financingRepayment = (loanAmount * t * months) / 12;
+  const financingCosts = financingInterest + financingRepayment;
+
+  // 7. Kaufnebenkosten in Euro
   const closingCosts = percentMode ? (maxPurchase * closingPercent) / 100 : closingEuro;
 
-  // 6. Gesamtinvestition (GIK)
+  // 8. Gesamtinvestition (GIK), ohne Finanzierung
   const totalInvestment = maxPurchase + closingCosts + k;
 
-  // 7. Marge in Prozent (null, wenn der Nenner <= 0 ist)
+  // 9. Marge in Prozent (null, wenn der Nenner <= 0 ist)
   let marginPercent;
   if (totalBasis) {
     marginPercent = totalInvestment > 0 ? (marginEuro / totalInvestment) * 100 : null;
@@ -181,11 +226,11 @@ export function compute(kind, inputs, params, settings) {
     marginPercent = vk > 0 ? (marginEuro / vk) * 100 : null;
   }
 
-  // 8. Quadratmeterwerte (null bei Fläche 0)
+  // 10. Quadratmeterwerte (null bei Fläche 0)
   const maxPurchasePricePerSqm = perSqm(maxPurchase, area);
   const totalInvestmentPerSqm = perSqm(totalInvestment, area);
 
-  // 9. Bruttomietrendite Käufer (nur Art vermietet, auf Basis des VK)
+  // 11. Bruttomietrendite Käufer (nur Art vermietet, auf Basis des VK)
   let buyerYield = null;
   if (kind === KIND.VERMIETET && vk > 0) {
     buyerYield = ((rent + parking) * 12) / vk * 100;
@@ -200,6 +245,10 @@ export function compute(kind, inputs, params, settings) {
     marginPercent,
     maxPurchasePrice: maxPurchase,
     maxPurchasePricePerSqm,
+    loanAmount,
+    financingInterest,
+    financingRepayment,
+    financingCosts,
     closingCosts,
     totalInvestment,
     totalInvestmentPerSqm,
@@ -264,7 +313,7 @@ export const Fmt = Object.freeze({
  * Anzeige eines Zahlenfeldes ohne Fokus mit Einheit, wie FieldSpec.displayText in der App:
  * „250.000 €“, „60 m²“, „10,0 %“, „4.000 €/m²“. Geschütztes Leerzeichen vor der Einheit.
  */
-const FIELD_SUFFIX = Object.freeze({ euro: '€', euroPerSqm: '€/m²', squareMeter: 'm²', percent: '%' });
+const FIELD_SUFFIX = Object.freeze({ euro: '€', euroPerSqm: '€/m²', squareMeter: 'm²', percent: '%', months: 'Monate' });
 export function fieldDisplay(spec, value) {
   return Fmt.fieldNumber(value, spec.digits) + NBSP + FIELD_SUFFIX[spec.unit];
 }

@@ -173,3 +173,59 @@ test('Feldanzeige ohne Fokus mit Einheit und geschütztem Leerzeichen', () => {
   assert.equal(fieldDisplay(FIELDS.salePricePerSqm, 4000), '4.000\u00A0€/m²');
   assert.equal(fieldDisplay(FIELDS.rentPerSqm, 12), '12,00\u00A0€/m²');
 });
+
+// Finanzierung (Prüfwerte wie in den Swift-Tests, FinancingTests.swift)
+const FIN = { loanPercent: 100, interestPercent: 4.7, repaymentPercent: 1.5, repaymentEnabled: true, durationMonths: 6 };
+const CASE_INPUTS = base({
+  salePrice: 300000,
+  parkingSalePrice: 0,
+  livingArea: 60,
+  closingCostsEuro: 10000,
+  closingCostsPercent: 10,
+  renovationCosts: 20000,
+  otherCosts: 0,
+});
+const CASE_PARAMS = { targetMargin: 20, salesCommission: 0, rentPerSqm: 12, targetYield: 4.5 };
+
+test('Finanzierung a): Euro-KNK 10.000 €, 100 % / 4,7 % / 1,5 % an / 6 Monate', () => {
+  const r = compute('en', CASE_INPUTS, CASE_PARAMS, SALES, FIN);
+  assert.equal(round2(r.maxPurchasePrice), 203685.74);
+  assert.equal(round2(r.financingCosts), 6314.26);
+  assert.equal(round2(r.loanAmount), 203685.74);
+  assert.equal(round2(r.financingInterest), 4786.61);
+  assert.equal(round2(r.financingRepayment), 1527.64);
+  // Invariante: EK + KNK + K + M + F = N (VK 300.000, Marge 60.000, K 20.000)
+  assert.equal(round2(r.maxPurchasePrice + 10000 + 20000 + 60000 + r.financingCosts), 300000);
+});
+
+test('Finanzierung b): Tilgung aus, Tilgung 0 €', () => {
+  const r = compute('en', CASE_INPUTS, CASE_PARAMS, SALES, { ...FIN, repaymentEnabled: false });
+  assert.equal(round2(r.maxPurchasePrice), 205178.31);
+  assert.equal(round2(r.financingCosts), 4821.69);
+  assert.equal(round2(r.financingRepayment), 0);
+});
+
+test('Finanzierung c): Prozent-KNK 10 %', () => {
+  const r = compute('en', CASE_INPUTS, CASE_PARAMS, PERCENT, FIN);
+  assert.equal(round2(r.maxPurchasePrice), 194518.13);
+});
+
+test('Finanzierung d): Höhe 0 % ergibt den Wert ohne Finanzierung', () => {
+  const r = compute('en', CASE_INPUTS, CASE_PARAMS, SALES, { ...FIN, loanPercent: 0 });
+  const plain = compute('en', CASE_INPUTS, CASE_PARAMS, SALES);
+  assert.equal(round2(r.maxPurchasePrice), 210000);
+  assert.equal(r.financingCosts, 0);
+  assert.equal(r.maxPurchasePrice, plain.maxPurchasePrice);
+});
+
+test('Finanzierung: ohne Parameter wie bisher (kein Einfluss)', () => {
+  const r = compute('en', CASE_INPUTS, CASE_PARAMS, SALES);
+  assert.equal(round2(r.maxPurchasePrice), 210000);
+  assert.equal(r.financingCosts, 0);
+});
+
+test('Feldanzeige Monate und Finanzierungsfelder', () => {
+  assert.equal(fieldDisplay(FIELDS.durationMonths, 6), '6 Monate');
+  assert.equal(fieldDisplay(FIELDS.interestPercent, 4.7), '4,7 %');
+  assert.equal(fieldDisplay(FIELDS.loanPercent, 100), '100 %');
+});
