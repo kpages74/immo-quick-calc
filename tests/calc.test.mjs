@@ -1,7 +1,19 @@
 // Tests für die Rechenlogik. Ausführen mit: node --test tests/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compute, Fmt, parseNumber, clampField, DEFAULT_INPUTS, FIELDS, fieldDisplay } from '../calc.js';
+import {
+  compute,
+  Fmt,
+  parseNumber,
+  clampField,
+  DEFAULT_INPUTS,
+  DEFAULT_SETTINGS,
+  DEFAULT_FINANCING,
+  FIELDS,
+  fieldDisplay,
+  defaultParameters,
+  KIND,
+} from '../calc.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
@@ -9,25 +21,71 @@ const base = (overrides = {}) => ({ ...DEFAULT_INPUTS, ...overrides });
 const SALES = { marginBasis: 'salesPrice', closingCostMode: 'euro' };
 const PERCENT = { marginBasis: 'salesPrice', closingCostMode: 'percent' };
 const GIK = { marginBasis: 'totalInvestment', closingCostMode: 'euro' };
+/** Vermietet-Parameter: Marge 20 %, Vertrieb 0 %, Rendite 4,5 %, Soll-Miete +15 %. */
+const RENT_PARAMS = { targetMargin: 20, salesCommission: 0, rentPerSqm: 12, targetYield: 4.5, rentSurchargePercent: 15 };
 
-test('VPS vermietet: Objektpreis, VK, EK und Sanierung/m²', () => {
+test('VPS vermietet: Soll-Miete, Objektpreis, VK, EK und Sanierung/m²', () => {
   const inputs = base({
-    salePricePerSqm: 4000,
-    livingArea: 60,
-    parkingSalePrice: 10000,
+    rent: 1000,
+    livingArea: 100,
+    parkingRent: 50,
     closingCostsPercent: 10,
     renovationCosts: 20000,
     otherCosts: 0,
   });
-  const params = { targetMargin: 20, salesCommission: 10, rentPerSqm: 12, targetYield: 4.5 };
+  const params = { ...RENT_PARAMS, salesCommission: 10 };
   const r = compute('vermietet', inputs, params, PERCENT);
 
-  assert.equal(round2(r.objectSalePrice), 240000);
-  assert.equal(round2(r.salePrice), 250000);
-  assert.equal(round2(r.salesCommission), 25000);
-  assert.equal(round2(r.marginEuro), 50000);
-  assert.equal(round2(r.maxPurchasePrice), 140909.09);
-  assert.equal(round2(r.renovationPerSqm), 333.33);
+  // Objekt = 1.150 × 12 / 0,045 = 306.666,67; Stellplatz = 50 × 12 / 0,045 = 13.333,33; VK = 320.000
+  assert.equal(round2(r.objectSalePrice), 306666.67);
+  assert.equal(round2(r.salePrice), 320000);
+  assert.equal(round2(r.salesCommission), 32000);
+  assert.equal(round2(r.marginEuro), 64000);
+  assert.equal(round2(r.maxPurchasePrice), 185454.55);
+  assert.equal(round2(r.renovationPerSqm), 200);
+  assert.equal(round2(r.targetRent), 1150);
+});
+
+test('T2 vermietet: Objektpreis 306.666,67, VK 320.000, M 64.000, EK 230.630,63', () => {
+  const inputs = base({
+    rent: 1000,
+    livingArea: 100,
+    parkingRent: 50,
+    closingCostsPercent: 11,
+    renovationCosts: 0,
+    otherCosts: 0,
+  });
+  const r = compute('vermietet', inputs, RENT_PARAMS, PERCENT);
+
+  assert.equal(round2(r.objectSalePrice), 306666.67);
+  assert.equal(round2(r.salePrice), 320000);
+  assert.equal(round2(r.marginEuro), 64000);
+  assert.equal(round2(r.maxPurchasePrice), 230630.63);
+  assert.equal(round2(r.targetRent), 1150);
+  assert.equal(round2(r.targetRentPerSqm), 11.5);
+});
+
+test('T3 vermietet: Rendite 0 ergibt nil bei Objektpreis und EK', () => {
+  const inputs = base({ rent: 1000, livingArea: 100, parkingRent: 50, renovationCosts: 0, otherCosts: 0 });
+  const r = compute('vermietet', inputs, { ...RENT_PARAMS, targetYield: 0 }, PERCENT);
+
+  assert.equal(r.objectSalePrice, null);
+  assert.equal(r.salePrice, null);
+  assert.equal(r.maxPurchasePrice, null);
+  assert.equal(r.isPurchasePossible, false);
+  assert.equal(Fmt.currency(r.salePrice), '–');
+});
+
+test('T4 Standardwerte: Zins 5,5 %, Gebühr 1 %, KNK 11 % in %, Soll-Miete 15 %, Rendite Vermietet 4,5 %', () => {
+  assert.equal(DEFAULT_FINANCING.interestPercent, 5.5);
+  assert.equal(DEFAULT_FINANCING.processingFeePercent, 1);
+  assert.equal(DEFAULT_SETTINGS.closingCostMode, 'percent');
+  assert.equal(DEFAULT_INPUTS.closingCostsPercent, 11);
+  for (const kind of [KIND.VERMIETET, KIND.KAP, KIND.EN]) {
+    assert.equal(defaultParameters(kind).rentSurchargePercent, 15);
+  }
+  assert.equal(defaultParameters(KIND.VERMIETET).targetYield, 4.5);
+  assert.equal(defaultParameters(KIND.VERMIETET).targetMargin, 20);
 });
 
 test('V1 Leerstehend EN mit Prozent-Kaufnebenkosten', () => {
@@ -117,19 +175,23 @@ test('Kundenbeispiel: VK 100000, Vertrieb 10, Marge 0, Kosten 0 ergibt EK 90000'
   assert.equal(round2(r.maxPurchasePrice), 90000);
 });
 
-test('Mietrendite vermietet: 2,94 % brutto', () => {
-  const inputs = base({
-    livingArea: 50,
-    salePricePerSqm: 5000,
-    parkingSalePrice: 15000,
-    rent: 600,
-    parkingRent: 50,
-  });
-  const params = { targetMargin: 20, salesCommission: 0, rentPerSqm: 12, targetYield: 4.5 };
-  const r = compute('vermietet', inputs, params, SALES);
+test('Vermietet: Ist-Miete 600, Soll +15 % = 690, Stellplatzmiete 50, Rendite 4,5 %', () => {
+  const inputs = base({ livingArea: 50, parkingSalePrice: 15000, rent: 600, parkingRent: 50 });
+  const r = compute('vermietet', inputs, RENT_PARAMS, SALES);
 
-  assert.equal(round2(r.salePrice), 265000);
-  assert.equal(round2(r.buyerYield), 2.94);
+  // Objekt = 690 × 12 / 0,045 = 184.000; Stellplatz = 50 × 12 / 0,045 = 13.333,33; VK = 197.333,33
+  assert.equal(round2(r.targetRent), 690);
+  assert.equal(round2(r.objectSalePrice), 184000);
+  assert.equal(round2(r.salePrice), 197333.33);
+  assert.equal(round2(r.buyerYield), 3.95);
+});
+
+test('Vermietet: Soll-Miete 0 % entspricht der Ist-Miete', () => {
+  const inputs = base({ livingArea: 50, rent: 600, parkingRent: 0 });
+  const r = compute('vermietet', inputs, { ...RENT_PARAMS, rentSurchargePercent: 0 }, SALES);
+
+  assert.equal(round2(r.targetRent), 600);
+  assert.equal(round2(r.objectSalePrice), 160000);
 });
 
 test('Parser: deutsche Schreibweise und ungültige Eingaben', () => {
@@ -175,7 +237,8 @@ test('Feldanzeige ohne Fokus mit Einheit und geschütztem Leerzeichen', () => {
 });
 
 // Finanzierung (Prüfwerte wie in den Swift-Tests, FinancingTests.swift)
-const FIN = { loanPercent: 100, interestPercent: 4.7, repaymentPercent: 1.5, repaymentEnabled: true, durationMonths: 6 };
+// Altwerte ohne Bearbeitungsgebühr (0 %), damit die bisherigen Sollwerte unverändert gelten.
+const FIN = { loanPercent: 100, interestPercent: 4.7, repaymentPercent: 1.5, repaymentEnabled: true, durationMonths: 6, processingFeePercent: 0 };
 const CASE_INPUTS = base({
   salePrice: 300000,
   parkingSalePrice: 0,
@@ -228,4 +291,20 @@ test('Feldanzeige Monate und Finanzierungsfelder', () => {
   assert.equal(fieldDisplay(FIELDS.durationMonths, 6), '6 Monate');
   assert.equal(fieldDisplay(FIELDS.interestPercent, 4.7), '4,7 %');
   assert.equal(fieldDisplay(FIELDS.loanPercent, 100), '100 %');
+});
+
+test('Feldanzeige Bearbeitungsgebühr, Soll-Miete und Ist-Miete', () => {
+  assert.equal(fieldDisplay(FIELDS.processingFeePercent, 1), '1,0 %');
+  assert.equal(fieldDisplay(FIELDS.rentSurcharge, 15), '15,0 %');
+  assert.equal(FIELDS.rent.label, 'Ist-Miete p. M.');
+});
+
+test('T1 EN Finanzierung mit Bearbeitungsgebühr 1 %: EK 200.956,94, F 9.043,06', () => {
+  const fin = { loanPercent: 100, interestPercent: 5.5, repaymentPercent: 1.5, repaymentEnabled: true, durationMonths: 6, processingFeePercent: 1 };
+  const r = compute('en', CASE_INPUTS, CASE_PARAMS, SALES, fin);
+  assert.equal(round2(r.maxPurchasePrice), 200956.94);
+  assert.equal(round2(r.financingCosts), 9043.06);
+  assert.equal(round2(r.financingFee), 2009.57);
+  // Invariante: EK + KNK + K + M + F = N (VK 300.000, Marge 60.000, K 20.000, KNK 10.000)
+  assert.equal(round2(r.maxPurchasePrice + 10000 + 20000 + 60000 + r.financingCosts), 300000);
 });

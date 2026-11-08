@@ -24,17 +24,17 @@ const STORAGE_KEYS = {
 };
 
 // Felder, die in parameters statt in inputs liegen.
-const PARAM_KEYS = new Set(['targetMargin', 'salesCommission', 'rentPerSqm', 'targetYield']);
+const PARAM_KEYS = new Set(['targetMargin', 'salesCommission', 'rentPerSqm', 'targetYield', 'rentSurchargePercent']);
 
 // Felder der Finanzierung (global, nicht je Seite).
-const FINANCING_KEYS = new Set(['loanPercent', 'interestPercent', 'repaymentPercent', 'durationMonths']);
+const FINANCING_KEYS = new Set(['loanPercent', 'interestPercent', 'repaymentPercent', 'durationMonths', 'processingFeePercent']);
 
 // Datensatz je Kalkulationsart.
 const PAGE_KEY = { vermietet: 'vermietet', kap: 'kap', en: 'leerstehend' };
 
 // Vierte Kopfzelle je Art.
 const CELL4 = {
-  vermietet: { caption: 'Mietrendite Käufer', fig: (r) => Fmt.percent(r.buyerYield), sub: () => 'brutto' },
+  vermietet: { caption: 'Verkaufspreis', fig: (r) => Fmt.currency(r.salePrice), sub: (r) => Fmt.perSqm(r.objectSalePricePerSqm) },
   kap: { caption: 'Miete p. M.', fig: (r) => Fmt.currency(r.monthlyRent), sub: (r) => Fmt.perSqm(r.currentRentPerSqm) },
   en: { caption: 'Vertriebskosten', fig: (r) => Fmt.currency(r.salesCommission), sub: () => ' ' },
 };
@@ -441,11 +441,18 @@ function buildForm(kind) {
   const salesGroup = addGroup('Verkauf', standard);
 
   if (kind === 'vermietet') {
-    addRow(salesGroup, inputRow('salePricePerSqm', { hint: (r) => Fmt.currency(r.objectSalePrice) }));
-    addRow(salesGroup, inputRow('parkingSalePrice'));
-    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
+    // Verkaufspreis Objekt ist berechnet (Schloss), aus Soll-Miete und Rendite Käufer.
+    addRow(salesGroup, lockedRow(FIELDS.salePricePerSqm.label, {
+      hint: (r) => Fmt.currency(r.objectSalePrice),
+      value: (r) => Fmt.perSqm(r.objectSalePricePerSqm),
+    }));
     addRow(salesGroup, inputRow('rent', { hint: (r) => Fmt.perSqm(r.currentRentPerSqm) }));
+    addRow(salesGroup, inputRow('rentSurcharge', {
+      hint: (r) => `${Fmt.currency(r.targetRent)} · ${Fmt.perSqm(r.targetRentPerSqm)}`,
+    }));
     addRow(salesGroup, inputRow('parkingRent'));
+    addRow(salesGroup, inputRow('targetYield'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
   } else if (kind === 'kap') {
     addRow(salesGroup, lockedRow(FIELDS.salePricePerSqm.label, {
       hint: (r) => Fmt.currency(r.objectSalePrice),
@@ -476,6 +483,7 @@ function buildForm(kind) {
     toggle: { label: 'Tilgung einrechnen', key: 'repaymentEnabled' },
   }));
   addRow(financingGroup, inputRow('durationMonths'));
+  addRow(financingGroup, inputRow('processingFeePercent', { hint: (r) => Fmt.currency(r.financingFee) }));
   addRow(financingGroup, lockedRow('Finanzierungskosten', {
     hint: () => null,
     value: (r) => Fmt.currency(r.financingCosts),
@@ -527,8 +535,10 @@ function updateHeader(result) {
   const maxEl = $('h-max');
   maxEl.textContent = Fmt.currency(result.maxPurchasePrice);
   maxEl.classList.toggle('warn', !possible);
-  $('h-max-sqm').textContent = Fmt.perSqm(result.maxPurchasePricePerSqm);
-  $('h-max-warn').hidden = possible;
+  // Eine Zeile unter dem EK: €/m² bei möglichem Ankauf, sonst der Hinweis. Gleiche Höhe, keine Lücke.
+  const sqmEl = $('h-max-sqm');
+  sqmEl.textContent = possible ? Fmt.perSqm(result.maxPurchasePricePerSqm) : 'Kein Ankauf möglich';
+  sqmEl.classList.toggle('warn', !possible);
   $('h-margin-eur').textContent = Fmt.currency(result.marginEuro);
   $('h-gik').textContent = Fmt.currency(result.totalInvestment);
   cell4.fig.textContent = CELL4[cell4.kind].fig(result);
