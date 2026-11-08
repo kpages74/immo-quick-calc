@@ -8,6 +8,7 @@ export const CLOSING_MODE = Object.freeze({ EURO: 'euro', PERCENT: 'percent' });
 /** Standardwerte der Objektdaten (ObjectInputs in Models.swift). */
 export const DEFAULT_INPUTS = Object.freeze({
   salePrice: 250000,
+  // Verkaufspreis je m² (Arten vermietet, KAP, WG). Seiten-Standard: applyLegacySaleDefaults.
   salePricePerSqm: 4000,
   parkingSalePrice: 0,
   rent: 600,
@@ -112,41 +113,86 @@ export function sliderFraction(key, value) {
 const nonNegative = (x) => (x < 0 ? 0 : x);
 const perSqm = (value, area) => (area > 0 ? value / area : null);
 
-function emptyResult(extra) {
+/** Version des Preismodells. 2 = Verkaufspreis je Art eigenständig (€/m² bzw. Objektpreis, Stellplatz in €). */
+export const PRICE_MODEL_VERSION = 2;
+
+/**
+ * Alte Verkaufswerte nach der bisherigen Rendite-Formel (CalcEngine.legacySaleValues).
+ * Nur für Standardwerte und Migration. Liefert €/m² des Objekts (ohne Stellplatz) und den Stellplatz-Verkaufspreis in €.
+ * Bei Rendite 0 oder Fläche 0 bleiben die Eingaben salePricePerSqm und parkingSalePrice erhalten.
+ */
+export function legacySaleValues(kind, inputs, params) {
+  const fallback = {
+    objectPricePerSqm: nonNegative(inputs.salePricePerSqm),
+    parkingPrice: nonNegative(inputs.parkingSalePrice),
+  };
+  const yieldFraction = nonNegative(params.targetYield) / 100;
+  const area = nonNegative(inputs.livingArea);
+  if (kind === KIND.EN || yieldFraction <= 0 || area <= 0) return fallback;
+  const factor = 12 / yieldFraction;
+  if (kind === KIND.VERMIETET) {
+    const surcharge = nonNegative(params.rentSurchargePercent) / 100;
+    const sollRent = nonNegative(inputs.rent) * (1 + surcharge);
+    return {
+      objectPricePerSqm: (sollRent * factor) / area,
+      parkingPrice: nonNegative(inputs.parkingRent) * factor,
+    };
+  }
+  if (kind === KIND.KAP) {
+    return {
+      objectPricePerSqm: nonNegative(params.rentPerSqm) * factor,
+      parkingPrice: nonNegative(inputs.parkingSalePrice),
+    };
+  }
+  // WG
+  const roomRentTotal = nonNegative(inputs.wgRooms) * nonNegative(inputs.wgRoomRent);
   return {
-    salePrice: null,
-    salePricePerSqm: null,
-    objectSalePrice: null,
-    objectSalePricePerSqm: null,
-    marginEuro: null,
-    marginPercent: null,
-    maxPurchasePrice: null,
-    maxPurchasePricePerSqm: null,
-    loanAmount: null,
-    financingInterest: null,
-    financingFee: null,
-    financingCosts: null,
-    targetRent: null,
-    targetRentPerSqm: null,
-    closingCosts: null,
-    totalInvestment: null,
-    totalInvestmentPerSqm: null,
-    currentRentPerSqm: null,
-    buyerYield: null,
-    salesCommission: null,
-    renovationPerSqm: null,
-    monthlyRent: null,
-    isPurchasePossible: false,
-    rentalIncome: null,
-    holdingCosts: null,
-    parkingValue: null,
-    ...extra,
+    objectPricePerSqm: (roomRentTotal * factor) / area,
+    parkingPrice: nonNegative(inputs.wgParkingCount) * nonNegative(inputs.parkingRent) * factor,
   };
 }
 
 /**
+ * Standardwerte der Verkaufswerte je Art (Preismodell 2): nicht EN €/m² und Stellplatz-Verkaufspreis aus den
+ * bisherigen Renditewerten, EN unverändert. Gibt eine neue Eingabe-Kopie zurück.
+ */
+export function applyLegacySaleDefaults(kind, inputs, params) {
+  if (kind === KIND.EN) return { ...inputs };
+  const legacy = legacySaleValues(kind, inputs, params);
+  return { ...inputs, salePricePerSqm: legacy.objectPricePerSqm, parkingSalePrice: legacy.parkingPrice };
+}
+
+/**
+ * Migration eines Standes ohne priceModelVersion 2 (wie PageState.migrated in CalcStore.swift).
+ * legacy: { vkMode, manualSalePrice } aus dem alten Stand.
+ * - Alter VK-Modus mit manuellem Verkaufspreis M (inkl. Stellplatz): nicht EN: Stellplatz aus den alten Werten,
+ *   €/m² = max(0, M − Stellplatz) / Fläche (bei Fläche 0 der alte €/m²-Wert). EN: Objektpreis = max(0, M − Stellplatz).
+ * - Sonst: nicht EN: €/m² und Stellplatz aus den alten Werten. EN bleibt unverändert.
+ */
+export function migrateLegacyInputs(kind, inputs, params, legacy) {
+  const out = { ...inputs };
+  const old = legacySaleValues(kind, inputs, params);
+  const manual = nonNegative(legacy.manualSalePrice ?? 0);
+  const area = nonNegative(inputs.livingArea);
+  if (legacy.vkMode === true) {
+    if (kind === KIND.EN) {
+      out.salePrice = Math.max(0, manual - nonNegative(inputs.parkingSalePrice));
+    } else {
+      out.parkingSalePrice = old.parkingPrice;
+      out.salePricePerSqm = area > 0 ? Math.max(0, manual - old.parkingPrice) / area : old.objectPricePerSqm;
+    }
+  } else if (kind !== KIND.EN) {
+    out.salePricePerSqm = old.objectPricePerSqm;
+    out.parkingSalePrice = old.parkingPrice;
+  }
+  return out;
+}
+
+/**
  * Rechnung wie CalcEngine.compute(kind:inputs:parameters:settings:).
- * kind: 'vermietet' | 'kap' | 'en'. Ergebnisse sind null, wenn nicht berechenbar („–“).
+ * kind: 'vermietet' | 'kap' | 'wg' | 'en'. Ergebnisse sind null, wenn nicht berechenbar („–“).
+ * Der Verkaufspreis ist eine Eingabe (€/m² bzw. Objektpreis gesamt bei EN, Stellplatz in €). Die Rendite Käufer
+ * ist nur Anzeige. Der Max. Einkaufspreis ist das einzige berechnete Ergebnis.
  * financing: Finanzierung (global). Mit loanPercent 0 wird ohne Finanzierung gerechnet.
  */
 export function compute(kind, inputs, params, settings, financing = NO_FINANCING) {
@@ -159,55 +205,39 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   const k = renovation + nonNegative(inputs.otherCosts);
   const m = nonNegative(params.targetMargin) / 100;
   const v = nonNegative(params.salesCommission) / 100;
+  const parkingPriceValue = nonNegative(inputs.parkingSalePrice);
+  const inputPricePerSqm = nonNegative(inputs.salePricePerSqm);
 
-  // 0. Objektpreis je Art. Vermietet: Soll-Miete und Stellplatzmiete über die Rendite Käufer.
-  let objectPrice = null;
-  let objectPricePerSqm = null;
+  // 0. Objektpreis je Art.
+  //    Vermietet, KAP, WG: €/m² ist die Eingabe, Objektpreis = €/m² × Fläche. EN: Objektpreis gesamt.
+  let objectPrice;
+  let objectPricePerSqm;
   let currentRentPerSqm = null;
   let monthlyRent = null;
   let targetRent = null;
   let targetRentPerSqm = null;
-  let parkingPriceValue = nonNegative(inputs.parkingSalePrice);
+  let roomRentTotal = 0;
 
   if (kind === KIND.VERMIETET) {
-    const yieldFraction = nonNegative(params.targetYield) / 100;
     const surcharge = nonNegative(params.rentSurchargePercent) / 100;
     const sollRent = rent * (1 + surcharge);
     targetRent = sollRent;
     targetRentPerSqm = perSqm(sollRent, area);
     currentRentPerSqm = perSqm(rent, area);
-    if (yieldFraction > 0) {
-      // Objektpreis = Soll-Miete × 12 / Rendite; Stellplatzwert = Stellplatzmiete × 12 / Rendite
-      const factor = 12 / yieldFraction;
-      objectPrice = sollRent * factor;
-      objectPricePerSqm = perSqm(objectPrice, area);
-      parkingPriceValue = parking * factor;
-    }
-    // Rendite 0: kein Objektpreis, alle abhängigen Ergebnisse bleiben „–“.
+    objectPricePerSqm = inputPricePerSqm;
+    objectPrice = inputPricePerSqm * area;
   } else if (kind === KIND.WG) {
-    // Kaltmiete aller Zimmer × 12 / Rendite = Objektpreis. Stellplätze × Stellplatzmiete × 12 / Rendite.
-    const yieldFraction = nonNegative(params.targetYield) / 100;
-    const roomRentTotal = nonNegative(inputs.wgRooms) * nonNegative(inputs.wgRoomRent);
+    // Kaltmiete aller Zimmer je Monat. Der Objektpreis steht in €/m².
+    roomRentTotal = nonNegative(inputs.wgRooms) * nonNegative(inputs.wgRoomRent);
     monthlyRent = roomRentTotal;
-    if (yieldFraction > 0) {
-      const factor = 12 / yieldFraction;
-      objectPrice = roomRentTotal * factor;
-      objectPricePerSqm = perSqm(objectPrice, area);
-      parkingPriceValue = nonNegative(inputs.wgParkingCount) * parking * factor;
-    }
-    // Rendite 0: kein Objektpreis, alle abhängigen Ergebnisse bleiben „–“.
+    objectPricePerSqm = inputPricePerSqm;
+    objectPrice = inputPricePerSqm * area;
   } else if (kind === KIND.KAP) {
     const rentPerSqm = nonNegative(params.rentPerSqm);
-    const yieldFraction = nonNegative(params.targetYield) / 100;
     monthlyRent = rentPerSqm * area;
     currentRentPerSqm = rentPerSqm;
-    if (yieldFraction > 0) {
-      // VK je m² = Miete je m² × 12 / Rendite
-      const pricePerSqmKap = (rentPerSqm * 12) / yieldFraction;
-      objectPricePerSqm = pricePerSqmKap;
-      objectPrice = pricePerSqmKap * area;
-    }
-    // Rendite 0: kein Objektpreis, alle abhängigen Ergebnisse bleiben „–“.
+    objectPricePerSqm = inputPricePerSqm;
+    objectPrice = inputPricePerSqm * area;
   } else {
     const price = nonNegative(inputs.salePrice);
     objectPrice = price;
@@ -216,10 +246,6 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   }
 
   const renovationPerSqm = perSqm(renovation, area);
-
-  if (objectPrice === null) {
-    return emptyResult({ currentRentPerSqm, renovationPerSqm, monthlyRent, targetRent, targetRentPerSqm });
-  }
 
   // WG rechnet die Kaufnebenkosten immer in Prozent.
   const percentMode = kind === KIND.WG || settings.closingCostMode === 'percent';
@@ -284,10 +310,19 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   const maxPurchasePricePerSqm = perSqm(maxPurchase, area);
   const totalInvestmentPerSqm = perSqm(totalInvestment, area);
 
-  // 11. Bruttomietrendite Käufer (nur Art vermietet, auf Basis des VK)
+  // 11. Rendite Käufer (nur Anzeige, nicht in der Rechnung). null bei VK bzw. Objektpreis 0 und bei EN.
+  //     Vermietet: (Soll-Miete + Stellplatzmiete) × 12 / VK
+  //     KAP: Miete je m² × 12 / Objektpreis je m²
+  //     WG: (Zimmer × Kaltmiete + Stellplätze × Stellplatzmiete) × 12 / VK
   let buyerYield = null;
-  if (kind === KIND.VERMIETET && vk > 0) {
-    buyerYield = ((rent + parking) * 12) / vk * 100;
+  if (kind === KIND.VERMIETET) {
+    if (vk > 0 && objectPrice > 0) buyerYield = ((targetRent + parking) * 12) / vk * 100;
+  } else if (kind === KIND.KAP) {
+    if (objectPricePerSqm > 0) buyerYield = (nonNegative(params.rentPerSqm) * 12) / objectPricePerSqm * 100;
+  } else if (kind === KIND.WG) {
+    if (vk > 0 && objectPrice > 0) {
+      buyerYield = ((roomRentTotal + nonNegative(inputs.wgParkingCount) * parking) * 12) / vk * 100;
+    }
   }
 
   return {
@@ -427,45 +462,4 @@ export function parseNumber(text) {
   if (!/[0-9]/.test(normalized)) return null;
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
-}
-
-/**
- * VK-Modus: Der Verkaufspreis ist manuell, die Marge ergibt sich daraus. EK und Kosten bleiben wie im Standard.
- * std: Ergebnis von compute() im Standard. manualPrice: manueller Verkaufspreis (inkl. Stellplatz).
- * N = VK − Vertrieb, Marge € = N − H − GIK − F, Marge % = Marge € / GIK.
- * Objekt-VK und €/m² sind der manuelle VK ohne Stellplatzwert (nicht unter 0).
- */
-export function applyManualSalePrice(std, manualPrice, commissionPercent, area) {
-  if (std.totalInvestment === null || std.holdingCosts === null) return std;
-  const vk = nonNegative(manualPrice);
-  const v = nonNegative(commissionPercent) / 100;
-  const commission = vk * v;
-  const netto = vk - commission;
-  const marginEuro = netto - std.holdingCosts - std.totalInvestment - std.financingCosts;
-  const objectPrice = Math.max(0, vk - std.parkingValue);
-  return {
-    ...std,
-    salePrice: vk,
-    objectSalePrice: objectPrice,
-    objectSalePricePerSqm: perSqm(objectPrice, area),
-    salesCommission: commission,
-    marginEuro,
-    marginPercent: std.totalInvestment > 0 ? (marginEuro / std.totalInvestment) * 100 : null,
-  };
-}
-
-/**
- * Seite EN: Verkaufspreis (gespeichert, ohne Stellplatz) aus dem manuellen Verkaufspreis (inkl. Stellplatz).
- * Beim Verlassen des VK-Modus mit „Ändern“. Nicht unter 0.
- */
-export function salePriceFromManual(manualPrice, parkingSalePrice) {
-  return Math.max(0, nonNegative(manualPrice) - nonNegative(parkingSalePrice));
-}
-
-/**
- * VK-Modus, Eingabe in €/m² (Objektpreis ohne Stellplatz): manueller VK inkl. Stellplatz = €/m² × Wohnfläche + Stellplatzwert.
- * Negative €/m²-Werte und Fläche werden auf 0 begrenzt. Bei Fläche 0 bleibt nur der Stellplatzwert.
- */
-export function manualPriceFromPerSqm(perSqm, area, parkingValue) {
-  return nonNegative(perSqm) * nonNegative(area) + parkingValue;
 }
