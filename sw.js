@@ -1,6 +1,6 @@
 // Service Worker: Offline-Nutzung. Bei jeder Änderung der Dateien die Version erhöhen,
 // damit alte Caches entfernt und die neuen Dateien geladen werden.
-const CACHE_VERSION = 'v12';
+const CACHE_VERSION = 'v13';
 const CACHE_NAME = `immo-quick-calc-${CACHE_VERSION}`;
 
 const ASSETS = [

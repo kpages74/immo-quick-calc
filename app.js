@@ -261,6 +261,7 @@ function numberField({ spec, get, set, header = false, display, clamp }) {
   input.spellcheck = false;
   input.className = header ? 'head-input' : 'pill';
   input.setAttribute('aria-label', spec.label);
+  input.setAttribute('data-number-field', '');
 
   // Bearbeitungstext beim Fokus. null = nicht im Bearbeitungsmodus.
   let editStart = null;
@@ -720,6 +721,81 @@ function render() {
   for (const node of document.querySelectorAll('.fit')) fitText(node);
 }
 
+// MARK: - Scrollposition bei Zahlenfeldern
+
+// Die Seite scrollt über das Fenster. Beim Antippen eines Zahlenfeldes schiebt iOS Safari das Feld
+// über der Tastatur in die Sicht. Die Position davor wird gemerkt und nach dem Verlassen des Feldes
+// sowie nach dem Schließen der Tastatur wiederhergestellt, außer der Nutzer hat selbst gescrollt.
+const KEEP_TIMEOUT_MS = 800;
+const scrollKeep = { saved: null, userScrolled: false, pending: false, timer: null };
+
+function isNumberField(node) {
+  return node instanceof HTMLInputElement && node.hasAttribute('data-number-field');
+}
+
+function keepScrollStart() {
+  if (scrollKeep.saved !== null) return;
+  scrollKeep.saved = window.scrollY;
+  scrollKeep.userScrolled = false;
+}
+
+function keepScrollRestore() {
+  if (scrollKeep.saved === null || scrollKeep.userScrolled) return;
+  window.scrollTo(0, scrollKeep.saved);
+}
+
+function keepScrollCancelPending() {
+  clearTimeout(scrollKeep.timer);
+  scrollKeep.timer = null;
+  scrollKeep.pending = false;
+}
+
+function keepScrollFinish() {
+  if (scrollKeep.saved === null) return;
+  keepScrollRestore();
+  keepScrollCancelPending();
+  scrollKeep.pending = true;
+  scrollKeep.timer = setTimeout(keepScrollDone, KEEP_TIMEOUT_MS);
+}
+
+function keepScrollDone() {
+  keepScrollRestore();
+  keepScrollCancelPending();
+  scrollKeep.saved = null;
+  scrollKeep.userScrolled = false;
+}
+
+function installScrollKeeper() {
+  document.addEventListener('pointerdown', (event) => {
+    if (isNumberField(event.target)) keepScrollStart();
+  }, true);
+
+  document.addEventListener('focusin', (event) => {
+    if (!isNumberField(event.target)) return;
+    keepScrollStart();
+    keepScrollCancelPending();
+  });
+
+  // Wechsel zu einem anderen Zahlenfeld: der zuerst gemerkte Wert bleibt.
+  document.addEventListener('focusout', (event) => {
+    if (!isNumberField(event.target) || isNumberField(event.relatedTarget)) return;
+    keepScrollFinish();
+  });
+
+  // Zieht der Nutzer selbst, wird nicht zurückgesetzt.
+  window.addEventListener('touchmove', () => {
+    if (scrollKeep.saved === null) return;
+    if (isNumberField(document.activeElement) || scrollKeep.pending) scrollKeep.userScrolled = true;
+  }, { passive: true });
+
+  // Nach dem Schließen der Tastatur (Größe des sichtbaren Bereichs ändert sich), mit Sicherheits-Timeout.
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      if (scrollKeep.pending) keepScrollRestore();
+    });
+  }
+}
+
 // MARK: - Start
 
 function tapOutsideBlurs(event) {
@@ -806,6 +882,7 @@ function init() {
   });
 
   formEl.addEventListener('pointerdown', tapOutsideBlurs);
+  installScrollKeeper();
   window.addEventListener('resize', () => {
     for (const node of document.querySelectorAll('.pill')) fitPill(node);
     for (const node of document.querySelectorAll('.fit')) fitText(node);
