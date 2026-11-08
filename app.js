@@ -1,5 +1,7 @@
 import {
   compute,
+  applyManualSalePrice,
+  salePriceFromManual,
   defaultParameters,
   DEFAULT_INPUTS,
   DEFAULT_INPUTS_WG,
@@ -29,8 +31,7 @@ const STORAGE_KEYS = {
 // Felder, die in parameters statt in inputs liegen.
 const PARAM_KEYS = new Set(['targetMargin', 'salesCommission', 'rentPerSqm', 'targetYield', 'rentSurchargePercent']);
 
-// Feldname im Formular -> Schlüssel in inputs/parameters, wenn beide verschieden heißen
-// (Soll-Miete: rentSurchargePercent; Seite WG: eigene Bereiche, gleiche Daten wie die anderen Seiten).
+// Feldname im Formular -> Schlüssel in inputs/parameters, wenn beide verschieden heißen.
 const DATA_KEY = {
   rentSurcharge: 'rentSurchargePercent',
   wgRenovation: 'renovationCosts',
@@ -39,30 +40,28 @@ const DATA_KEY = {
   wgYield: 'targetYield',
 };
 
-// Felder der Finanzierung (global, nicht je Seite).
-const FINANCING_KEYS = new Set(['loanPercent', 'interestPercent', 'repaymentPercent', 'durationMonths', 'processingFeePercent']);
+// Felder der Finanzierung (global, nicht je Seite). Tilgung entfällt.
+const FINANCING_KEYS = new Set(['loanPercent', 'interestPercent', 'durationMonths', 'processingFeePercent']);
 
 // Datensatz je Kalkulationsart.
 const PAGE_KEY = { vermietet: 'vermietet', kap: 'kap', en: 'leerstehend', wg: 'wg' };
 
-// Vierte Kopfzelle je Art.
-const CELL4 = {
-  vermietet: { caption: 'Verkaufspreis', fig: (r) => Fmt.currency(r.salePrice), sub: (r) => Fmt.perSqm(r.objectSalePricePerSqm) },
-  kap: { caption: 'Miete p. M.', fig: (r) => Fmt.currency(r.monthlyRent), sub: (r) => Fmt.perSqm(r.currentRentPerSqm) },
-  wg: { caption: 'Verkaufspreis', fig: (r) => Fmt.currency(r.salePrice), sub: (r, inputs) => Fmt.perRoom(r.salePrice, inputs.wgRooms) },
-  en: { caption: 'Vertriebskosten', fig: (r) => Fmt.currency(r.salesCommission), sub: () => ' ' },
-};
-
 const LOCK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 const LOCK_OPEN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V7.5a4 4 0 0 1 8 0" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
-const PENCIL_SVG ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4L16 5l3 3L8 19z"/></svg>';
+const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4L16 5l3 3L8 19z"/></svg>';
 
 // MARK: - Zustand
 
 function makePage(kind) {
   // Seiten-Standard: Hausgeld 300 € (laufende Kosten), sonst wie calc.js.
   const inputs = { ...(kind === 'wg' ? DEFAULT_INPUTS_WG : DEFAULT_INPUTS), hausgeld: 300 };
-  return { inputs, parameters: defaultParameters(kind) };
+  return {
+    inputs,
+    parameters: defaultParameters(kind),
+    // VK-Modus aus (Standard). manualSalePrice: manuell festgelegter Verkaufspreis.
+    vkMode: false,
+    manualSalePrice: DEFAULT_INPUTS.salePrice,
+  };
 }
 
 const state = {
@@ -117,7 +116,6 @@ function sanitizeFinancing(raw) {
   for (const key of FINANCING_KEYS) {
     if (isFiniteNumber(raw[key])) financing[key] = raw[key];
   }
-  if (typeof raw.repaymentEnabled === 'boolean') financing.repaymentEnabled = raw.repaymentEnabled;
   return financing;
 }
 
@@ -130,6 +128,8 @@ function sanitizePage(raw, kind) {
   for (const key of Object.keys(page.parameters)) {
     if (isFiniteNumber(raw.parameters?.[key])) page.parameters[key] = raw.parameters[key];
   }
+  page.vkMode = raw.vkMode === true;
+  if (isFiniteNumber(raw.manualSalePrice)) page.manualSalePrice = raw.manualSalePrice;
   return page;
 }
 
@@ -142,9 +142,6 @@ function loadState() {
 
   const settings = readJSON(STORAGE_KEYS.settings);
   if (settings && typeof settings === 'object') {
-    if (settings.marginBasis === 'salesPrice' || settings.marginBasis === 'totalInvestment') {
-      state.settings.marginBasis = settings.marginBasis;
-    }
     if (settings.closingCostMode === 'euro' || settings.closingCostMode === 'percent') {
       state.settings.closingCostMode = settings.closingCostMode;
     }
@@ -324,7 +321,7 @@ function holderOf(key) {
  * Zeile mit Zahlenfeld und Regler. lock: Schloss-Knopf links neben der Pill (Soll-Miete).
  * Gesperrt sind Regler und Pill (gedimmt), der Info-Text bleibt aktiv.
  */
-function inputRow(key, { hint = null, toggle = null, lock = false } = {}) {
+function inputRow(key, { hint = null, lock = false } = {}) {
   const spec = FIELDS[key];
   const dataKey = DATA_KEY[key] ?? key;
   const get = () => holderOf(dataKey)[dataKey];
@@ -365,20 +362,6 @@ function inputRow(key, { hint = null, toggle = null, lock = false } = {}) {
 
   root.append(head, slider);
 
-  // Optionaler Schalter unter dem Regler (z. B. „Tilgung einrechnen“). Der Regler bleibt bedienbar.
-  let check = null;
-  if (toggle) {
-    const checkLabel = el('label', 'check-row');
-    check = el('input');
-    check.type = 'checkbox';
-    check.addEventListener('change', () => {
-      state.financing[toggle.key] = check.checked;
-      changed();
-    });
-    checkLabel.append(check, document.createTextNode(` ${toggle.label}`));
-    root.append(checkLabel);
-  }
-
   return {
     el: root,
     update(result) {
@@ -387,7 +370,6 @@ function inputRow(key, { hint = null, toggle = null, lock = false } = {}) {
       slider.value = String(value);
       slider.style.setProperty('--pos', `${sliderFraction(key, value) * 100}%`);
       setHint(hintEl, hint ? hint(result) : null);
-      if (check) check.checked = Boolean(state.financing[toggle.key]);
       if (lockBtn) {
         const locked = !state.rentSurchargeUnlocked;
         root.classList.toggle('is-locked', locked);
@@ -450,7 +432,6 @@ function segmented(container, options, getValue, onSelect) {
 
 let rows = [];
 let formKey = '';
-let cell4 = null;
 const formEl = $('form');
 
 function addGroup(title, trailing) {
@@ -468,16 +449,17 @@ function addRow(section, row) {
   section.append(row.el);
 }
 
+/** Reihenfolge: Kauf → Laufende Kosten → Verkauf → Finanzierung (Finanzierung zuletzt). */
 function buildForm(kind) {
   rows = [];
   formEl.replaceChildren();
 
-  // Kauf: alle Werte für den Ankauf, ohne Button.
+  // 1. Kauf. WG: Wohnfläche zuerst, damit €/m² berechenbar ist; Kaufnebenkosten immer in %.
   const purchaseGroup = addGroup('Kauf');
   if (kind === 'wg') {
-    // WG: keine Wohnfläche, Kaufnebenkosten immer in %, Sanierung und Sonstige im WG-Bereich.
+    addRow(purchaseGroup, inputRow('livingArea'));
     addRow(purchaseGroup, inputRow('closingCostsPercent', { hint: (r) => Fmt.currency(r.closingCosts) }));
-    addRow(purchaseGroup, inputRow('wgRenovation'));
+    addRow(purchaseGroup, inputRow('wgRenovation', { hint: (r) => Fmt.perSqm(r.renovationPerSqm) }));
     addRow(purchaseGroup, inputRow('wgOther'));
   } else {
     addRow(purchaseGroup, inputRow('livingArea'));
@@ -490,57 +472,7 @@ function buildForm(kind) {
     addRow(purchaseGroup, inputRow('otherCosts'));
   }
 
-  // Verkauf mit Standard-Button (setzt die Parameter der Art zurück).
-  const standard = el('button', 'std-btn', 'Standard');
-  standard.type = 'button';
-  standard.addEventListener('click', () => {
-    currentPage().parameters = defaultParameters(currentKind());
-    changed();
-  });
-  const salesGroup = addGroup('Verkauf', standard);
-
-  if (kind === 'vermietet') {
-    // Verkaufspreis ist berechnet (Schloss), aus Soll-Miete und Rendite Käufer.
-    addRow(salesGroup, lockedRow(FIELDS.salePricePerSqm.label, {
-      hint: (r) => Fmt.currency(r.objectSalePrice),
-      value: (r) => Fmt.perSqm(r.objectSalePricePerSqm),
-    }));
-    addRow(salesGroup, inputRow('rent', { hint: (r) => Fmt.perSqm(r.currentRentPerSqm) }));
-    addRow(salesGroup, inputRow('rentSurcharge', {
-      hint: (r) => `${Fmt.currency(r.targetRent)} · ${Fmt.perSqm(r.targetRentPerSqm)}`,
-      lock: true,
-    }));
-    addRow(salesGroup, inputRow('parkingRent'));
-    addRow(salesGroup, inputRow('targetYield'));
-    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
-  } else if (kind === 'kap') {
-    addRow(salesGroup, lockedRow(FIELDS.salePricePerSqm.label, {
-      hint: (r) => Fmt.currency(r.objectSalePrice),
-      value: (r) => Fmt.perSqm(r.objectSalePricePerSqm),
-    }));
-    addRow(salesGroup, inputRow('rentPerSqm', { hint: (r) => Fmt.currency(r.monthlyRent) }));
-    addRow(salesGroup, inputRow('targetYield'));
-    addRow(salesGroup, inputRow('parkingSalePrice'));
-    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
-  } else if (kind === 'wg') {
-    // Verkaufspreis = berechnet (Schloss), Info-Text: Verkaufspreis je Zimmer.
-    addRow(salesGroup, lockedRow(FIELDS.salePrice.label, {
-      hint: (r) => Fmt.perRoom(r.salePrice, currentPage().inputs.wgRooms),
-      value: (r) => Fmt.currency(r.salePrice),
-    }));
-    addRow(salesGroup, inputRow('wgRooms'));
-    addRow(salesGroup, inputRow('wgRoomRent', { hint: (r) => Fmt.currency(r.monthlyRent) }));
-    addRow(salesGroup, inputRow('wgParkingCount'));
-    addRow(salesGroup, inputRow('wgParkingRent'));
-    addRow(salesGroup, inputRow('wgYield'));
-    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
-  } else {
-    addRow(salesGroup, inputRow('salePrice', { hint: (r) => Fmt.perSqm(r.objectSalePricePerSqm) }));
-    addRow(salesGroup, inputRow('parkingSalePrice'));
-    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
-  }
-
-  // Laufende Kosten während der Projektlaufzeit (alle Seiten). Mit Button „Standard“: Hausgeld 300 €, Strom/Heizung 0 €.
+  // 2. Laufende Kosten während der Projektlaufzeit (alle Seiten). Mit Button „Standard“: Hausgeld 300 €, Strom/Heizung 0 €.
   const operatingStandard = el('button', 'std-btn', 'Standard');
   operatingStandard.type = 'button';
   operatingStandard.addEventListener('click', () => {
@@ -562,7 +494,45 @@ function buildForm(kind) {
     value: (r) => Fmt.currency(r.holdingCosts),
   }));
 
-  // Finanzierung: global für alle Seiten, letzte Gruppe. Mit Button „Standard“.
+  // 3. Verkauf mit Standard-Button (setzt die Parameter der Art zurück und beendet den VK-Modus).
+  const standard = el('button', 'std-btn', 'Standard');
+  standard.type = 'button';
+  standard.addEventListener('click', () => {
+    currentPage().parameters = defaultParameters(currentKind());
+    currentPage().vkMode = false;
+    changed();
+  });
+  const salesGroup = addGroup('Verkauf', standard);
+
+  if (kind === 'vermietet') {
+    addRow(salesGroup, inputRow('rent', { hint: (r) => Fmt.perSqm(r.currentRentPerSqm) }));
+    addRow(salesGroup, inputRow('rentSurcharge', {
+      hint: (r) => `${Fmt.currency(r.targetRent)} · ${Fmt.perSqm(r.targetRentPerSqm)}`,
+      lock: true,
+    }));
+    addRow(salesGroup, inputRow('parkingRent'));
+    addRow(salesGroup, inputRow('targetYield'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
+  } else if (kind === 'kap') {
+    addRow(salesGroup, inputRow('rentPerSqm', { hint: (r) => Fmt.currency(r.monthlyRent) }));
+    addRow(salesGroup, inputRow('targetYield'));
+    addRow(salesGroup, inputRow('parkingSalePrice'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
+  } else if (kind === 'wg') {
+    // Kein Verkaufspreis-Feld mehr in Verkauf (steht im Kopf).
+    addRow(salesGroup, inputRow('wgRooms'));
+    addRow(salesGroup, inputRow('wgRoomRent', { hint: (r) => Fmt.currency(r.monthlyRent) }));
+    addRow(salesGroup, inputRow('wgParkingCount'));
+    addRow(salesGroup, inputRow('wgParkingRent'));
+    addRow(salesGroup, inputRow('wgYield'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
+  } else {
+    // Leerstehend EN: Verkaufspreis nur im Kopf (VK-Modus), hier keine Zeile.
+    addRow(salesGroup, inputRow('parkingSalePrice'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
+  }
+
+  // 4. Finanzierung: global für alle Seiten, letzte Gruppe. Tilgung entfällt. Mit Button „Standard“.
   const financingStandard = el('button', 'std-btn', 'Standard');
   financingStandard.type = 'button';
   financingStandard.addEventListener('click', () => {
@@ -572,10 +542,6 @@ function buildForm(kind) {
   const financingGroup = addGroup('Finanzierung', financingStandard);
   addRow(financingGroup, inputRow('loanPercent', { hint: (r) => Fmt.currency(r.loanAmount) }));
   addRow(financingGroup, inputRow('interestPercent', { hint: (r) => Fmt.currency(r.financingInterest) }));
-  addRow(financingGroup, inputRow('repaymentPercent', {
-    hint: (r) => Fmt.currency(r.financingRepayment),
-    toggle: { label: 'Tilgung einrechnen', key: 'repaymentEnabled' },
-  }));
   addRow(financingGroup, inputRow('durationMonths'));
   addRow(financingGroup, inputRow('processingFeePercent', { hint: (r) => Fmt.currency(r.financingFee) }));
   addRow(financingGroup, lockedRow('Finanzierungskosten', {
@@ -584,27 +550,18 @@ function buildForm(kind) {
   }));
 }
 
-function buildCell4(kind) {
-  const cell = $('cell-4');
-  cell.replaceChildren();
-  const fig = el('div', 'fig fit');
-  const sub = el('div', 'sub fit');
-  cell.append(el('div', 'cap', CELL4[kind].caption), fig, sub);
-  cell4 = { kind, fig, sub };
-}
-
-/** Baut Formular und vierte Kopfzelle nur neu, wenn sich Art oder Kostenmodus ändern. */
+/** Baut Formular nur neu, wenn sich Art oder Kostenmodus ändern. */
 function ensureForm() {
   const kind = currentKind();
   const key = `${kind}|${state.settings.closingCostMode}`;
   if (key === formKey) return;
   formKey = key;
   buildForm(kind);
-  buildCell4(kind);
 }
 
 // MARK: - Kopf
 
+// Marge (GIK): bearbeitbar im Standard. Im VK-Modus gesperrt (zeigt das Ergebnis).
 const marginField = numberField({
   spec: FIELDS.targetMargin,
   header: true,
@@ -617,14 +574,83 @@ const marginField = numberField({
   clamp: (value) => clampField('targetMargin', value),
 });
 
-function buildMarginSlot() {
-  const wrap = el('div', 'margin-field');
-  wrap.append(marginField.el);
-  wrap.insertAdjacentHTML('beforeend', PENCIL_SVG);
-  $('margin-slot').append(wrap);
+// Verkaufspreis: bearbeitbar im VK-Modus. Bei EN fließt der Wert zusätzlich in das Eingabefeld „Verkaufspreis“.
+const vkField = numberField({
+  spec: FIELDS.salePrice,
+  header: true,
+  get: () => currentPage().manualSalePrice,
+  set: (value) => {
+    currentPage().manualSalePrice = value;
+    changed();
+  },
+  display: (value) => Fmt.currency(value),
+  clamp: (value) => Math.max(0, value),
+});
+
+const marginLockedValue = el('span', 'head-val');
+const vkLockedValue = el('span', 'head-val');
+let headMode = null;
+let lastStd = null;
+
+/** Kasten mit Stift: bearbeitbar. */
+function editableHeadBox(inputEl) {
+  const box = el('div', 'head-box');
+  box.append(inputEl);
+  box.insertAdjacentHTML('beforeend', PENCIL_SVG);
+  return box;
 }
 
-function updateHeader(result) {
+/** Kasten mit Schloss: gesperrt, Klick führt die Aktion aus (Bestätigung oder Zurück). */
+function lockedHeadBox(valueEl, label, onTap) {
+  const box = el('div', 'head-box is-locked');
+  box.setAttribute('role', 'button');
+  box.tabIndex = 0;
+  box.setAttribute('aria-label', label);
+  box.title = label;
+  box.append(valueEl);
+  box.insertAdjacentHTML('beforeend', LOCK_SVG);
+  box.addEventListener('click', onTap);
+  box.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onTap();
+    }
+  });
+  return box;
+}
+
+function leaveVkMode() {
+  const page = currentPage();
+  if (currentKind() === 'en') {
+    page.inputs.salePrice = salePriceFromManual(page.manualSalePrice, page.inputs.parkingSalePrice);
+  }
+  page.vkMode = false;
+  changed();
+}
+
+const MARGE_TEXT = 'Der Verkaufspreis wird dann wieder aus Miete und Rendite berechnet und gesperrt.';
+const MARGE_TEXT_EN = 'Der Verkaufspreis bleibt bestehen und wird gesperrt. Der Max. Einkaufspreis wird aus der Marge berechnet.';
+
+function openMargeDialog() {
+  $('marge-text').textContent = currentKind() === 'en' ? MARGE_TEXT_EN : MARGE_TEXT;
+  openDialog($('dlg-marge'));
+}
+
+function buildHeadSlots(vkMode) {
+  const marginSlot = $('margin-slot');
+  const vkSlot = $('vk-slot');
+  marginSlot.replaceChildren();
+  vkSlot.replaceChildren();
+  if (vkMode) {
+    vkSlot.append(editableHeadBox(vkField.el));
+    marginSlot.append(lockedHeadBox(marginLockedValue, 'Marge manuell festlegen', () => openMargeDialog()));
+  } else {
+    marginSlot.append(editableHeadBox(marginField.el));
+    vkSlot.append(lockedHeadBox(vkLockedValue, 'Verkaufspreis manuell festlegen', () => openDialog($('dlg-vk'))));
+  }
+}
+
+function updateHeader(result, page) {
   const possible = result.isPurchasePossible;
   const maxEl = $('h-max');
   maxEl.textContent = Fmt.currency(result.maxPurchasePrice);
@@ -632,15 +658,25 @@ function updateHeader(result) {
   // Eine Zeile unter dem EK: €/m² bei möglichem Ankauf, sonst der Hinweis. Gleiche Höhe, keine Lücke.
   const sqmEl = $('h-max-sqm');
   sqmEl.textContent = possible
-    ? (currentKind() === 'wg'
-      ? Fmt.perRoom(result.maxPurchasePrice, currentPage().inputs.wgRooms)
-      : Fmt.perSqm(result.maxPurchasePricePerSqm))
+    ? Fmt.perSqm(result.maxPurchasePricePerSqm)
     : 'Kein Ankauf möglich';
   sqmEl.classList.toggle('warn', !possible);
+
+  const key = page.vkMode ? 'vk' : 'std';
+  if (headMode !== key) {
+    headMode = key;
+    buildHeadSlots(page.vkMode);
+  }
+  if (page.vkMode) {
+    vkField.sync();
+    marginLockedValue.textContent = Fmt.percent(result.marginPercent);
+  } else {
+    marginField.sync();
+    vkLockedValue.textContent = Fmt.currency(result.salePrice);
+  }
   $('h-margin-eur').textContent = Fmt.currency(result.marginEuro);
+  $('h-vk-sqm').textContent = Fmt.perSqm(result.objectSalePricePerSqm);
   $('h-gik').textContent = Fmt.currency(result.totalInvestment);
-  cell4.fig.textContent = CELL4[cell4.kind].fig(result);
-  cell4.sub.textContent = CELL4[cell4.kind].sub(result, currentPage().inputs);
 }
 
 // MARK: - Einstellungen
@@ -668,10 +704,13 @@ function render() {
   ensureForm();
   const kind = currentKind();
   const page = currentPage();
-  const result = compute(kind, page.inputs, page.parameters, state.settings, state.financing);
+  const std = compute(kind, page.inputs, page.parameters, state.settings, state.financing);
+  lastStd = std;
+  const result = page.vkMode
+    ? applyManualSalePrice(std, page.manualSalePrice, page.parameters.salesCommission, page.inputs.livingArea)
+    : std;
 
-  updateHeader(result);
-  marginField.sync();
+  updateHeader(result, page);
   for (const row of rows) row.update(result);
 
   modeUpdate();
@@ -722,19 +761,6 @@ function init() {
 
   settingsUpdaters = [
     segmented(
-      $('set-margin'),
-      [
-        { value: 'salesPrice', label: 'vom Verkaufspreis' },
-        { value: 'totalInvestment', label: 'auf GIK' },
-      ],
-      () => state.settings.marginBasis,
-      (value) => {
-        state.settings.marginBasis = value;
-        changed();
-        syncSettings();
-      },
-    ),
-    segmented(
       $('set-closing'),
       [
         { value: 'euro', label: 'in €' },
@@ -749,8 +775,6 @@ function init() {
     ),
   ];
 
-  buildMarginSlot();
-
   $('open-settings').addEventListener('click', () => {
     syncSettings();
     openDialog($('dlg-settings'));
@@ -762,6 +786,23 @@ function init() {
     resetAll();
     closeDialog($('dlg-reset'));
     syncSettings();
+  });
+
+  // Bestätigung VK-Modus: „Ändern“ übernimmt den aktuellen Standard-Verkaufspreis als manuellen Wert.
+  $('btn-vk-cancel').addEventListener('click', () => closeDialog($('dlg-vk')));
+  $('btn-marge-cancel').addEventListener('click', () => closeDialog($('dlg-marge')));
+  $('btn-marge-confirm').addEventListener('click', () => {
+    closeDialog($('dlg-marge'));
+    leaveVkMode();
+  });
+  $('btn-vk-confirm').addEventListener('click', () => {
+    const page = currentPage();
+    page.manualSalePrice = lastStd.salePrice;
+    page.vkMode = true;
+    closeDialog($('dlg-vk'));
+    changed();
+    // Nach dem Schließen des Dialogs das Verkaufspreis-Feld fokussieren (Text wird markiert).
+    setTimeout(() => vkField.el.focus(), 0);
   });
 
   formEl.addEventListener('pointerdown', tapOutsideBlurs);

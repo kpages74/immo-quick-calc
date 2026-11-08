@@ -6,6 +6,7 @@
   --text: #FAEEC8;
   --secondary: rgba(250, 238, 200, 0.6);
   --field-border: rgba(250, 238, 200, 0.45);
+  --divider: rgba(250, 238, 200, 0.18);
   --seg-inactive: rgb(12, 33, 58);
   --slider-track: rgb(40, 66, 98);
   --warning: rgb(228, 86, 74);
@@ -178,11 +179,31 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Max. Einkaufspreis: nicht editierbarer Kasten im Stil des Margen-Feldes, Schrift wie GIK */
 .ek-box {
+  display: flex;
+  align-items: center;
   align-self: flex-start;
+  height: 28px;
   max-width: 100%;
-  padding: 1px 8px;
+  padding: 0 8px;
   border: 1px solid var(--field-border);
   border-radius: 8px;
+}
+
+.ek-box .fig {
+  min-width: 0;
+  width: 100%;
+}
+
+/* Zeile ohne Kasten (GIK): gleiche Höhe wie die Kästen, damit die Zeilen fluchten */
+.head-line {
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+
+.head-line .fig {
+  min-width: 0;
+  width: 100%;
 }
 
 .fig.warn, .sub.warn { color: var(--warning); }
@@ -197,25 +218,51 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 
 
-/* Editierbare Marge im Kopf (Rahmen + Stift) */
-.margin-field {
-  display: inline-flex;
+/* Slots im Kopf: Kästen linksbündig, nur so breit wie der Inhalt */
+#margin-slot,
+#vk-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Kopf-Kästen für Marge (GIK) und Verkaufspreis: bearbeitbar mit Stift, gesperrt mit Schloss.
+   Gesperrt: gedämpfter Rahmen, Klick öffnet die Bestätigung (VK) bzw. wechselt zurück (Marge). */
+.head-box {
+  display: flex;
   align-items: center;
-  align-self: flex-start;
   gap: 6px;
+  align-self: flex-start;
+  height: 28px;
   max-width: 100%;
-  padding: 1px 8px;
+  padding: 0 8px;
   border: 1px solid var(--field-border);
   border-radius: 8px;
 }
 
-.margin-field:focus-within { border-color: var(--accent); }
+.head-box:focus-within { border-color: var(--accent); }
 
-.margin-field svg {
+.head-box svg {
   width: 14px;
   height: 14px;
   flex: none;
   color: var(--secondary);
+}
+
+.head-box.is-locked {
+  border-color: var(--divider);
+  cursor: pointer;
+}
+
+.head-val {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 
 .head-input {
@@ -234,6 +281,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Formular */
 .form { padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+
+/* Trennstrich zwischen den Abschnitten */
+.group + .group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
+}
 
 .group-head {
   display: flex;
@@ -287,23 +341,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hint {
   font-size: 13px;
   white-space: normal;
-}
-
-/* Schalter unter dem Regler (Tilgung einrechnen) */
-.check-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--text);
-}
-
-.check-row input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--accent);
 }
 
 /* Zahlenfeld (Pill) */

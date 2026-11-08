@@ -41,16 +41,20 @@
             <div class="sub fit" id="h-max-sqm"></div>
           </div>
           <div class="cell">
-            <div class="cap">Marge</div>
+            <div class="cap">Marge (GIK)</div>
             <div id="margin-slot"></div>
             <div class="sub fit" id="h-margin-eur"></div>
           </div>
           <div class="cell">
+            <div class="cap">Verkaufspreis</div>
+            <div id="vk-slot"></div>
+            <div class="sub fit" id="h-vk-sqm"></div>
+          </div>
+          <div class="cell">
             <div class="cap">GIK</div>
-            <div class="fig small fit" id="h-gik"></div>
+            <div class="head-line"><div class="fig fit" id="h-gik"></div></div>
             <div class="sub">&nbsp;</div>
           </div>
-          <div class="cell" id="cell-4"></div>
         </div>
       </section>
     </div>
@@ -60,11 +64,6 @@
 
   <dialog id="dlg-settings" aria-labelledby="settings-title">
     <h2 id="settings-title" class="dlg-title">Einstellungen</h2>
-    <section class="set-sec">
-      <h3>Marge-Basis</h3>
-      <div class="seg" id="set-margin" role="group" aria-label="Marge-Basis"></div>
-      <p class="set-foot">Vom Verkaufspreis: Marge = Verkaufspreis × Zielmarge. Auf GIK: die Marge wird auf die Gesamtinvestition aufgeschlagen.</p>
-    </section>
     <section class="set-sec">
       <h3>Kaufnebenkosten</h3>
       <div class="seg" id="set-closing" role="group" aria-label="Kaufnebenkosten"></div>
@@ -83,6 +82,24 @@
     <div class="dlg-actions">
       <button type="button" class="btn" id="btn-reset-cancel">Abbrechen</button>
       <button type="button" class="btn btn-danger" id="btn-reset-confirm">Zurücksetzen</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-vk" aria-labelledby="vk-title">
+    <h2 id="vk-title" class="dlg-title">Verkaufspreis manuell festlegen?</h2>
+    <p class="set-foot">Die Marge wird dann aus dem Verkaufspreis berechnet und gesperrt.</p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="btn-vk-cancel">Abbrechen</button>
+      <button type="button" class="btn btn-primary" id="btn-vk-confirm">Ändern</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-marge" aria-labelledby="marge-title">
+    <h2 id="marge-title" class="dlg-title">Marge manuell festlegen?</h2>
+    <p class="set-foot" id="marge-text">Der Verkaufspreis wird dann wieder aus Miete und Rendite berechnet und gesperrt.</p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="btn-marge-cancel">Abbrechen</button>
+      <button type="button" class="btn btn-primary" id="btn-marge-confirm">Ändern</button>
     </div>
   </dialog>
 

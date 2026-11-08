@@ -3,7 +3,6 @@
 // Keine DOM-Zugriffe. Prozentwerte werden als Prozentzahl gespeichert (20 = 20 %).
 
 export const KIND = Object.freeze({ VERMIETET: 'vermietet', KAP: 'kap', EN: 'en', WG: 'wg' });
-export const MARGIN_BASIS = Object.freeze({ SALES_PRICE: 'salesPrice', TOTAL_INVESTMENT: 'totalInvestment' });
 export const CLOSING_MODE = Object.freeze({ EURO: 'euro', PERCENT: 'percent' });
 
 /** Standardwerte der Objektdaten (ObjectInputs in Models.swift). */
@@ -29,11 +28,10 @@ export const DEFAULT_INPUTS = Object.freeze({
 });
 
 /** Standardwerte der Seite WG: Miete je Stellplatz 50 €. */
-export const DEFAULT_INPUTS_WG = Object.freeze({ ...DEFAULT_INPUTS, parkingRent: 50 });
+export const DEFAULT_INPUTS_WG = Object.freeze({ ...DEFAULT_INPUTS, parkingRent: 50, livingArea: 90 });
 
 /** Standardeinstellungen (CalcSettings in Models.swift). */
 export const DEFAULT_SETTINGS = Object.freeze({
-  marginBasis: MARGIN_BASIS.SALES_PRICE,
   closingCostMode: CLOSING_MODE.PERCENT,
 });
 
@@ -41,8 +39,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export const DEFAULT_FINANCING = Object.freeze({
   loanPercent: 100,
   interestPercent: 5.5,
-  repaymentPercent: 1.5,
-  repaymentEnabled: true,
   durationMonths: 6,
   processingFeePercent: 1,
 });
@@ -84,7 +80,6 @@ export const FIELDS = Object.freeze({
   salesCommission: { label: 'Vertriebskosten', unit: 'percent', min: 0, max: 20, step: 0.5, digits: 1 },
   loanPercent: { label: 'Finanzierungshöhe', unit: 'percent', min: 0, max: 200, step: 1, digits: 0 },
   interestPercent: { label: 'Zinsen', unit: 'percent', min: 0, max: 15, step: 0.1, digits: 1 },
-  repaymentPercent: { label: 'Tilgung', unit: 'percent', min: 0, max: 10, step: 0.1, digits: 1 },
   durationMonths: { label: 'Projektlaufzeit', unit: 'months', min: 1, max: 60, step: 1, digits: 0 },
   processingFeePercent: { label: 'Bearbeitungsgebühr', unit: 'percent', min: 0, max: 5, step: 0.1, digits: 1 },
   // Seite WG: eigene Bereiche und Einheiten.
@@ -129,7 +124,6 @@ function emptyResult(extra) {
     maxPurchasePricePerSqm: null,
     loanAmount: null,
     financingInterest: null,
-    financingRepayment: null,
     financingFee: null,
     financingCosts: null,
     targetRent: null,
@@ -145,6 +139,7 @@ function emptyResult(extra) {
     isPurchasePossible: false,
     rentalIncome: null,
     holdingCosts: null,
+    parkingValue: null,
     ...extra,
   };
 }
@@ -197,6 +192,7 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
     if (yieldFraction > 0) {
       const factor = 12 / yieldFraction;
       objectPrice = roomRentTotal * factor;
+      objectPricePerSqm = perSqm(objectPrice, area);
       parkingPriceValue = nonNegative(inputs.wgParkingCount) * parking * factor;
     }
     // Rendite 0: kein Objektpreis, alle abhängigen Ergebnisse bleiben „–“.
@@ -227,68 +223,62 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
 
   // WG rechnet die Kaufnebenkosten immer in Prozent.
   const percentMode = kind === KIND.WG || settings.closingCostMode === 'percent';
-  const totalBasis = settings.marginBasis === 'totalInvestment';
 
   // 1. Verkaufspreis gesamt (Objekt + Stellplatz/Garage)
   const vk = objectPrice + parkingPriceValue;
 
-  // 2. Vertriebskosten V und Netto N
+  // 2. Vertriebskosten V und Netto N = VK − V
   const commission = vk * v;
   const netto = vk - commission;
 
-  // 3. Marge in Euro
-  const marginEuro = totalBasis ? netto - netto / (1 + m) : vk * m;
-
-  // 4. Finanzierung: f = Höhe, r = (Zins + Tilgung) × T / 12, b = Bearbeitungsgebühr. Tilgung 0, wenn der Schalter aus ist.
-  //    Der Nenner rechnet mit f × (r + b).
+  // 3. Finanzierung: f = Höhe, z = Zins, b = Bearbeitungsgebühr, T = Laufzeit in Monaten.
+  //    F = f × (z × T / 12 + b) × EK (Tilgung entfällt).
   const f = nonNegative(financing.loanPercent) / 100;
   const z = nonNegative(financing.interestPercent) / 100;
-  const t = financing.repaymentEnabled ? nonNegative(financing.repaymentPercent) / 100 : 0;
   const b = nonNegative(financing.processingFeePercent) / 100;
   const months = nonNegative(financing.durationMonths);
-  const rate = ((z + t) * months) / 12;
-  const financingFactor = f * (rate + b);
+  const financingFactor = f * ((z * months) / 12 + b);
 
-  // 4b. Laufende Kosten während der Projektlaufzeit: H = (Hausgeld + Strom/Heizung − Mieteinnahmen) × Monate.
-  //     Mieteinnahmen gibt es nur bei Vermietet (Ist-Miete + Stellplatzmiete), sonst 0.
+  // 4. Laufende Kosten während der Projektlaufzeit: H = (Hausgeld + Strom/Heizung − Mieteinnahmen) × Monate.
+  //    Mieteinnahmen gibt es nur bei Vermietet (Ist-Miete + Stellplatzmiete), sonst 0.
   const rentalIncome = kind === KIND.VERMIETET ? rent + parking : 0;
   const holdingCosts = (nonNegative(inputs.hausgeld) + nonNegative(inputs.heatingCosts) - rentalIncome) * months;
 
-  // 5. Maximaler Einkaufspreis (EK). Finanzierung mindert den EK, die Zielmarge bleibt.
-  //    Zähler <= 0: wie ohne Finanzierung, Finanzierungskosten 0.
+  // 5. Maximaler Einkaufspreis EK. Mit GIK = EK + KNK + K und N − H = (1 + m) × GIK + F gilt:
+  //    KNK in %: EK = (N − H − (1+m) K) / ((1+m)(1+p) + f(r+b))
+  //    KNK in €: EK = (N − H − (1+m)(KNK + K)) / ((1+m) + f(r+b))
+  //    Zähler <= 0: ohne Finanzierung rechnen, Finanzierungskosten 0.
   let maxPurchase;
   let financed;
+  let closingPercentFraction = 0;
   if (percentMode) {
-    const numerator = netto - marginEuro - k - holdingCosts;
-    const p = closingPercent / 100;
+    closingPercentFraction = closingPercent / 100;
+    const numerator = netto - holdingCosts - (1 + m) * k;
+    const denominator = (1 + m) * (1 + closingPercentFraction);
     financed = numerator > 0;
-    maxPurchase = financed ? numerator / (1 + p + financingFactor) : numerator / (1 + p);
+    maxPurchase = numerator / (denominator + (financed ? financingFactor : 0));
   } else {
-    const numerator = netto - marginEuro - closingEuro - k - holdingCosts;
+    const numerator = netto - holdingCosts - (1 + m) * (closingEuro + k);
+    const denominator = 1 + m;
     financed = numerator > 0;
-    maxPurchase = financed ? numerator / (1 + financingFactor) : numerator;
+    maxPurchase = numerator / (denominator + (financed ? financingFactor : 0));
   }
 
-  // 6. Darlehen, Finanzierungskosten (Zinsen + Tilgung über die Laufzeit) und einmalige Bearbeitungsgebühr
+  // 6. Darlehen und Finanzierungskosten (Zinsen über die Laufzeit und einmalige Bearbeitungsgebühr)
   const loanAmount = financed ? f * maxPurchase : 0;
   const financingInterest = (loanAmount * z * months) / 12;
-  const financingRepayment = (loanAmount * t * months) / 12;
   const financingFee = loanAmount * b;
-  const financingCosts = financingInterest + financingRepayment + financingFee;
+  const financingCosts = financingInterest + financingFee;
 
   // 7. Kaufnebenkosten in Euro
-  const closingCosts = percentMode ? (maxPurchase * closingPercent) / 100 : closingEuro;
+  const closingCosts = percentMode ? maxPurchase * closingPercentFraction : closingEuro;
 
-  // 8. Gesamtinvestition (GIK), ohne Finanzierung
+  // 8. Gesamtinvestition GIK = EK + KNK + K (ohne Finanzierung)
   const totalInvestment = maxPurchase + closingCosts + k;
 
-  // 9. Marge in Prozent (null, wenn der Nenner <= 0 ist)
-  let marginPercent;
-  if (totalBasis) {
-    marginPercent = totalInvestment > 0 ? (marginEuro / totalInvestment) * 100 : null;
-  } else {
-    marginPercent = vk > 0 ? (marginEuro / vk) * 100 : null;
-  }
+  // 9. Marge immer auf GIK-Basis: Marge € = m × GIK, Marge % = m × 100 (null ohne GIK).
+  const marginEuro = m * totalInvestment;
+  const marginPercent = totalInvestment > 0 ? (marginEuro / totalInvestment) * 100 : null;
 
   // 10. Quadratmeterwerte (null bei Fläche 0)
   const maxPurchasePricePerSqm = perSqm(maxPurchase, area);
@@ -305,13 +295,13 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
     salePricePerSqm: objectPricePerSqm,
     objectSalePrice: objectPrice,
     objectSalePricePerSqm: objectPricePerSqm,
+    parkingValue: parkingPriceValue,
     marginEuro,
     marginPercent,
     maxPurchasePrice: maxPurchase,
     maxPurchasePricePerSqm,
     loanAmount,
     financingInterest,
-    financingRepayment,
     financingFee,
     financingCosts,
     targetRent,
@@ -437,4 +427,37 @@ export function parseNumber(text) {
   if (!/[0-9]/.test(normalized)) return null;
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * VK-Modus: Der Verkaufspreis ist manuell, die Marge ergibt sich daraus. EK und Kosten bleiben wie im Standard.
+ * std: Ergebnis von compute() im Standard. manualPrice: manueller Verkaufspreis (inkl. Stellplatz).
+ * N = VK − Vertrieb, Marge € = N − H − GIK − F, Marge % = Marge € / GIK.
+ * Objekt-VK und €/m² sind der manuelle VK ohne Stellplatzwert (nicht unter 0).
+ */
+export function applyManualSalePrice(std, manualPrice, commissionPercent, area) {
+  if (std.totalInvestment === null || std.holdingCosts === null) return std;
+  const vk = nonNegative(manualPrice);
+  const v = nonNegative(commissionPercent) / 100;
+  const commission = vk * v;
+  const netto = vk - commission;
+  const marginEuro = netto - std.holdingCosts - std.totalInvestment - std.financingCosts;
+  const objectPrice = Math.max(0, vk - std.parkingValue);
+  return {
+    ...std,
+    salePrice: vk,
+    objectSalePrice: objectPrice,
+    objectSalePricePerSqm: perSqm(objectPrice, area),
+    salesCommission: commission,
+    marginEuro,
+    marginPercent: std.totalInvestment > 0 ? (marginEuro / std.totalInvestment) * 100 : null,
+  };
+}
+
+/**
+ * Seite EN: Verkaufspreis (gespeichert, ohne Stellplatz) aus dem manuellen Verkaufspreis (inkl. Stellplatz).
+ * Beim Verlassen des VK-Modus mit „Ändern“. Nicht unter 0.
+ */
+export function salePriceFromManual(manualPrice, parkingSalePrice) {
+  return Math.max(0, nonNegative(manualPrice) - nonNegative(parkingSalePrice));
 }
