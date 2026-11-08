@@ -1,13 +1,13 @@
 /* Farben wie Theme.swift. Die App ist immer dunkel. */
 :root {
-  --bg: #313E4F;
-  --accent: #E1D2A5;
-  --on-accent: #313E4F;
-  --text: #E1D2A5;
-  --secondary: rgba(225, 210, 165, 0.6);
-  --field-border: rgba(225, 210, 165, 0.45);
-  --seg-inactive: rgb(38, 50, 65);
-  --slider-track: rgb(74, 87, 104);
+  --bg: #0f2949;
+  --accent: #FAEEC8;
+  --on-accent: #0f2949;
+  --text: #FAEEC8;
+  --secondary: rgba(250, 238, 200, 0.6);
+  --field-border: rgba(250, 238, 200, 0.45);
+  --seg-inactive: rgb(12, 33, 58);
+  --slider-track: rgb(40, 66, 98);
   --warning: rgb(228, 86, 74);
   --pad: 24px;
   color-scheme: dark;
@@ -452,7 +452,7 @@ dialog {
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
 }
 
-dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
+dialog::backdrop { background: rgba(7, 20, 37, 0.6); }
 
 .dlg-title {
   margin: 0 0 16px;
