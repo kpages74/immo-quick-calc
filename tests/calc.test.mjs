@@ -61,16 +61,17 @@ test('VPS vermietet: Soll-Miete, Objektpreis, VK, EK und Sanierung/m²', () => {
   assert.equal(round2(r.objectSalePrice), 306666.67);
   assert.equal(round2(r.salePrice), 320000);
   assert.equal(round2(r.salesCommission), 32000);
-  // N = 288.000 = (1 + 0,2) × GIK → GIK 240.000, Marge 48.000, EK 200.000
-  assert.equal(round2(r.maxPurchasePrice), 200000);
-  assert.equal(round2(r.totalInvestment), 240000);
-  assert.equal(round2(r.marginEuro), 48000);
+  // N_Objekt = 306.666,67 × 0,9 = 276.000 = (1 + 0,2) × GIK → GIK 230.000, EK 190.909,09
+  // Marge 58.000 = 20 % × GIK 46.000 + Stellplatz 13.333,33 × 0,9 (12.000)
+  assert.equal(round2(r.maxPurchasePrice), 190909.09);
+  assert.equal(round2(r.totalInvestment), 230000);
+  assert.equal(round2(r.marginEuro), 58000);
   assert.equal(round2(r.renovationPerSqm), 200);
   assert.equal(round2(r.targetRent), 1150);
   assertIdentity(r);
 });
 
-test('T2 vermietet: Objektpreis 306.666,67, VK 320.000, Marge 53.333,33, EK 240.240,24', () => {
+test('T2 vermietet: Objektpreis 306.666,67, VK 320.000, Marge 64.444,44, EK 230.230,23', () => {
   const inputs = withLegacySale(
     base({ rent: 1000, livingArea: 100, parkingRent: 50, closingCostsPercent: 11, renovationCosts: 0, otherCosts: 0 }),
     KIND.VERMIETET, RENT_PARAMS);
@@ -78,9 +79,11 @@ test('T2 vermietet: Objektpreis 306.666,67, VK 320.000, Marge 53.333,33, EK 240.
 
   assert.equal(round2(r.objectSalePrice), 306666.67);
   assert.equal(round2(r.salePrice), 320000);
-  assert.equal(round2(r.marginEuro), 53333.33);
-  assert.equal(round2(r.maxPurchasePrice), 240240.24);
-  assert.equal(round2(r.totalInvestment), 266666.67);
+  // N_Objekt = 306.666,67 (Vertrieb 0 %) → EK 230.230,23, GIK 255.555,56
+  // Marge 64.444,44 = 20 % × GIK 51.111,11 + Stellplatz 13.333,33 × 1
+  assert.equal(round2(r.marginEuro), 64444.44);
+  assert.equal(round2(r.maxPurchasePrice), 230230.23);
+  assert.equal(round2(r.totalInvestment), 255555.56);
   assert.equal(round2(r.targetRent), 1150);
   assert.equal(round2(r.targetRentPerSqm), 11.5);
   assertIdentity(r);
@@ -168,15 +171,18 @@ test('Identität N − H = GIK + Marge + F: Vermietet, KAP, EN, WG', () => {
   assertIdentity(compute('wg', withLegacySale(DEFAULT_INPUTS_WG, KIND.WG, wgParams), wgParams, PERCENT, DEFAULT_FINANCING));
 });
 
-test('EN: VK = Objektpreis + Stellplatz; höherer Objektpreis erhöht den EK, Marge in % bleibt 20 %', () => {
+test('EN: VK = Objektpreis + Stellplatz; höherer Objektpreis erhöht den EK, Stellplatz zählt zu 95 % in die Marge', () => {
   const inputs = base({ salePrice: 250000, parkingSalePrice: 15000, livingArea: 60, closingCostsPercent: 10, renovationCosts: 20000, otherCosts: 0 });
   const params = { targetMargin: 20, salesCommission: 5, rentPerSqm: 12, targetYield: 4.5 };
   const std = compute('en', inputs, params, PERCENT);
-  assert.equal(round2(std.maxPurchasePrice), 172537.88);
+  assert.equal(round2(std.maxPurchasePrice), 161742.42);
   assert.equal(round2(std.salePrice), 265000);
+  // Marge 53.833,33 = 20 % × GIK 197.916,67 + Stellplatz 15.000 × 0,95 (14.250) → 27,20 %
+  assert.equal(round2(std.marginEuro), 53833.33);
+  assert.equal(round2(std.marginPercent), 27.2);
   const up = compute('en', { ...inputs, salePrice: 260000 }, params, PERCENT);
   assert.ok(up.maxPurchasePrice > std.maxPurchasePrice);
-  assert.equal(round2(up.marginPercent), 20);
+  assert.equal(round2(up.marginPercent), 26.92);
 });
 
 test('Verkaufspreis je m²: 3.000 €/m² × 60 m² = 180.000 Objekt, + Stellplatz 15.000 = 195.000 VK', () => {
@@ -455,17 +461,19 @@ test('WG Feldanzeige mit Einheit Zimmer/Stk. und Anzeige je Zimmer', () => {
 });
 
 // Laufende Kosten während der Projektlaufzeit (Prüfwerte wie in OperatingCostsTests.swift)
-test('T-H1 Excel-Abgleich Vermietet mit laufenden Kosten: VK 166.505,60, H −921,16, EK 122.907,20', () => {
+// Nach der Stellplatz-Regel (Stellplatz nur in der Marge, Objektpreis netto im EK) weicht der Excel-Abgleich ab.
+// Alter Excel-Wert vor der Änderung: EK 122.907,20, Marge 9.358,47.
+test('T-H1 Vermietet mit laufenden Kosten: VK 166.505,60, H −921,16, EK 111.744,38', () => {
   const params = { targetMargin: 6.784676711574065, salesCommission: 10, rentPerSqm: 12, targetYield: 4.5, rentSurchargePercent: 15 };
   const inputs = withLegacySale({ ...DEFAULT_INPUTS, rent: 494.04, livingArea: 69, parkingRent: 56.25, closingCostsPercent: 10.6,
     renovationCosts: 1000, otherCosts: 1000, hausgeld: 320, heatingCosts: 0 }, KIND.VERMIETET, params);
   const fin = { loanPercent: 100, interestPercent: 5.5, durationMonths: 4, processingFeePercent: 1 };
   const r = compute('vermietet', inputs, params, PERCENT, fin);
   assert.equal(round2(r.salePrice), 166505.6);
-  assert.equal(round2(r.marginEuro), 9358.47);
+  assert.equal(round2(r.marginEuro), 22020.83);
   assert.equal(round2(r.rentalIncome), 550.29);
   assert.equal(round2(r.holdingCosts), -921.16);
-  assert.equal(round2(r.maxPurchasePrice), 122907.2);
+  assert.equal(round2(r.maxPurchasePrice), 111744.38);
   assert.equal(Fmt.currency(r.holdingCosts), '-921,16 €');
   assertIdentity(r);
 });
@@ -605,4 +613,51 @@ test('Preismodell: Version 2, EN bleibt bei Standardwerten unverändert, Rendite
     { ...RENT_PARAMS, targetYield: 0 });
   assert.equal(zeroYield.objectPricePerSqm, 3000);
   assert.equal(zeroYield.parkingPrice, 700);
+});
+
+// MARK: - Stellplatz als Extra-Gewinn (KAP 60 m², €/m² 2.800, Stellplatz 21.000 €)
+
+/** KAP: 60 m², €/m² 2.800, Sanierung 20.000, KNK 11 %, Sonstige 0, Hausgeld 300, Strom 0, Miete 13 €/m², Marge 20 %. */
+function kapParkingCase({ parking = 21000, commission = 0 } = {}) {
+  const inputs = base({
+    salePricePerSqm: 2800, parkingSalePrice: parking, livingArea: 60, closingCostsPercent: 11,
+    renovationCosts: 20000, otherCosts: 0, hausgeld: 300, heatingCosts: 0,
+  });
+  const params = { targetMargin: 20, salesCommission: commission, rentPerSqm: 13, targetYield: 4.5, rentSurchargePercent: 15 };
+  return { inputs, params };
+}
+
+test('Stellplatz KAP: VK 189.000, EK 103.833,52, GIK 135.255,21, Marge 48.051,04 (35,53 %), Rendite Käufer 4,95 %', () => {
+  const { inputs, params } = kapParkingCase();
+  const r = compute('kap', inputs, params, PERCENT, STD_FIN);
+  assert.equal(round2(r.salePrice), 189000);
+  assert.equal(round2(r.maxPurchasePrice), 103833.52);
+  // GIK exakt 135.255,2026; 135.255,21 ist die Rundung der gerundeten Zwischenwerte (EK + KNK + K).
+  assert.ok(Math.abs(r.totalInvestment - 135255.21) < 0.01, `GIK ${r.totalInvestment}`);
+  assert.equal(round2(r.marginEuro), 48051.04);
+  assert.equal(round2(r.marginPercent), 35.53);
+  assert.equal(round2(r.buyerYield), 4.95);
+  assertIdentity(r);
+});
+
+test('Stellplatz 0 im gleichen Fall: EK 103.833,52 wie mit Stellplatz, Marge 27.051,04 (20 %)', () => {
+  const { inputs, params } = kapParkingCase({ parking: 0 });
+  const r = compute('kap', inputs, params, PERCENT, STD_FIN);
+  const withParking = compute('kap', kapParkingCase().inputs, kapParkingCase().params, PERCENT, STD_FIN);
+  assert.equal(r.maxPurchasePrice, withParking.maxPurchasePrice);
+  assert.equal(round2(r.maxPurchasePrice), 103833.52);
+  assert.equal(round2(r.marginEuro), 27051.04);
+  assert.equal(round2(r.marginPercent), 20);
+  assert.equal(round2(r.buyerYield), 5.57);
+});
+
+test('Stellplatz mit Vertrieb 10 %: zählt nur zu 90 % zur Marge (18.900 €), EK bleibt gleich', () => {
+  const p10 = kapParkingCase({ commission: 10 });
+  const withParking = compute('kap', p10.inputs, p10.params, PERCENT, STD_FIN);
+  const none = kapParkingCase({ parking: 0, commission: 10 });
+  const without = compute('kap', none.inputs, none.params, PERCENT, STD_FIN);
+  assert.equal(round2(withParking.maxPurchasePrice), 91566.27);
+  assert.equal(withParking.maxPurchasePrice, without.maxPurchasePrice);
+  assert.equal(round2(withParking.marginEuro - without.marginEuro), 18900);
+  assert.equal(round2(withParking.marginEuro), round2(0.2 * withParking.totalInvestment + 21000 * 0.9));
 });

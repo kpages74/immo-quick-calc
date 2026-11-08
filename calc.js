@@ -253,9 +253,10 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   // 1. Verkaufspreis gesamt (Objekt + Stellplatz/Garage)
   const vk = objectPrice + parkingPriceValue;
 
-  // 2. Vertriebskosten V und Netto N = VK − V
+  // 2. Vertriebskosten V = VK × v (fallen auf den ganzen Verkauf an). Für den EK zählt nur der Objektpreis netto:
+  //    N_Objekt = Objektpreis × (1 − v). Der Stellplatz ändert den EK nicht.
   const commission = vk * v;
-  const netto = vk - commission;
+  const objectNetto = objectPrice * (1 - v);
 
   // 3. Finanzierung: f = Höhe, z = Zins, b = Bearbeitungsgebühr, T = Laufzeit in Monaten.
   //    F = f × (z × T / 12 + b) × EK (Tilgung entfällt).
@@ -270,7 +271,7 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   const rentalIncome = kind === KIND.VERMIETET ? rent + parking : 0;
   const holdingCosts = (nonNegative(inputs.hausgeld) + nonNegative(inputs.heatingCosts) - rentalIncome) * months;
 
-  // 5. Maximaler Einkaufspreis EK. Mit GIK = EK + KNK + K und N − H = (1 + m) × GIK + F gilt:
+  // 5. Maximaler Einkaufspreis EK, N = Objektpreis netto. Mit GIK = EK + KNK + K und N − H = (1 + m) × GIK + F gilt:
   //    KNK in %: EK = (N − H − (1+m) K) / ((1+m)(1+p) + f(r+b))
   //    KNK in €: EK = (N − H − (1+m)(KNK + K)) / ((1+m) + f(r+b))
   //    Zähler <= 0: ohne Finanzierung rechnen, Finanzierungskosten 0.
@@ -279,12 +280,12 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   let closingPercentFraction = 0;
   if (percentMode) {
     closingPercentFraction = closingPercent / 100;
-    const numerator = netto - holdingCosts - (1 + m) * k;
+    const numerator = objectNetto - holdingCosts - (1 + m) * k;
     const denominator = (1 + m) * (1 + closingPercentFraction);
     financed = numerator > 0;
     maxPurchase = numerator / (denominator + (financed ? financingFactor : 0));
   } else {
-    const numerator = netto - holdingCosts - (1 + m) * (closingEuro + k);
+    const numerator = objectNetto - holdingCosts - (1 + m) * (closingEuro + k);
     const denominator = 1 + m;
     financed = numerator > 0;
     maxPurchase = numerator / (denominator + (financed ? financingFactor : 0));
@@ -302,8 +303,9 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   // 8. Gesamtinvestition GIK = EK + KNK + K (ohne Finanzierung)
   const totalInvestment = maxPurchase + closingCosts + k;
 
-  // 9. Marge immer auf GIK-Basis: Marge € = m × GIK, Marge % = m × 100 (null ohne GIK).
-  const marginEuro = m * totalInvestment;
+  // 9. Marge immer auf GIK-Basis: Marge € = m × GIK + Stellplatz × (1 − v), Marge % = Marge € / GIK × 100 (null ohne GIK).
+  //    Der Stellplatz ist Extra-Gewinn; auf ihn fallen Vertriebskosten an, daher nur × (1 − v).
+  const marginEuro = m * totalInvestment + parkingPriceValue * (1 - v);
   const marginPercent = totalInvestment > 0 ? (marginEuro / totalInvestment) * 100 : null;
 
   // 10. Quadratmeterwerte (null bei Fläche 0)
@@ -312,13 +314,15 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
 
   // 11. Rendite Käufer (nur Anzeige, nicht in der Rechnung). null bei VK bzw. Objektpreis 0 und bei EN.
   //     Vermietet: (Soll-Miete + Stellplatzmiete) × 12 / VK
-  //     KAP: Miete je m² × 12 / Objektpreis je m²
+  //     KAP: Miete je m² × 12 / (Objektpreis je m² + Stellplatzpreis je m²), der Stellplatz geht in den Kaufpreis ein
   //     WG: (Zimmer × Kaltmiete + Stellplätze × Stellplatzmiete) × 12 / VK
   let buyerYield = null;
   if (kind === KIND.VERMIETET) {
     if (vk > 0 && objectPrice > 0) buyerYield = ((targetRent + parking) * 12) / vk * 100;
   } else if (kind === KIND.KAP) {
-    if (objectPricePerSqm > 0) buyerYield = (nonNegative(params.rentPerSqm) * 12) / objectPricePerSqm * 100;
+    if (objectPricePerSqm > 0) {
+      buyerYield = (nonNegative(params.rentPerSqm) * 12) / (objectPricePerSqm + (area > 0 ? parkingPriceValue / area : 0)) * 100;
+    }
   } else if (kind === KIND.WG) {
     if (vk > 0 && objectPrice > 0) {
       buyerYield = ((roomRentTotal + nonNegative(inputs.wgParkingCount) * parking) * 12) / vk * 100;

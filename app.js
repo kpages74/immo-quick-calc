@@ -205,7 +205,14 @@ function fitText(node) {
   const needed = node.scrollWidth;
   if (width > 0 && needed > width + 1) {
     const base = parseFloat(getComputedStyle(node).fontSize);
-    node.style.fontSize = `${Math.max(base * 0.6, (base * width) / needed)}px`;
+    const min = base * 0.6;
+    let size = Math.max(min, (base * width) / needed);
+    node.style.fontSize = `${size}px`;
+    // Die Textbreite ist nicht exakt proportional zur Schrift: bei Überhang in kleinen Schritten nachverkleinern, nie unter 60 %.
+    while (node.scrollWidth > width + 1 && size > min) {
+      size = Math.max(min, size - 0.25);
+      node.style.fontSize = `${size}px`;
+    }
   }
 }
 
@@ -644,11 +651,16 @@ function buildHeadSlots(sqm) {
   $('vk-slot').replaceChildren(editableHeadBox(sqm ? vkSqmField.el : vkField.el));
 }
 
-/** Infotext unter dem Verkaufspreis bei EN: €/m² des Objekts, bei Stellplatz zusätzlich der Gesamtpreis. */
-function enSalesInfo(result, parkingSalePrice) {
-  let text = Fmt.perSqm(result.objectSalePricePerSqm);
-  if (parkingSalePrice > 0) text += ` · gesamt ${Fmt.currency(result.salePrice)}`;
-  return text;
+/** Zweite Zeile unter dem Verkaufspreis: „+ … Verkaufspreis Stellplatz“, nur bei Stellplatz > 0 (sonst leer und ausgeblendet). */
+function parkingSalesInfo(result, parkingSalePrice) {
+  return parkingSalePrice > 0 ? `+ ${Fmt.currency(result.parkingValue)} Verkaufspreis Stellplatz` : '';
+}
+
+/** Infotext unter der Marge: Betrag, mit Stellplatz zusätzlich die Marge in % (inkl. Stellplatz). */
+function marginInfo(result, parkingSalePrice) {
+  const euro = Fmt.currency(result.marginEuro);
+  if (!(parkingSalePrice > 0) || result.marginPercent === null) return euro;
+  return `${euro} · ${Fmt.percent(result.marginPercent)} inkl. Stellplatz`;
 }
 
 function updateHeader(result, page) {
@@ -671,8 +683,10 @@ function updateHeader(result, page) {
   }
   marginField.sync();
   (sqm ? vkSqmField : vkField).sync();
-  $('h-margin-eur').textContent = Fmt.currency(result.marginEuro);
-  $('h-vk-sqm').textContent = sqm ? Fmt.currency(result.salePrice) : enSalesInfo(result, page.inputs.parkingSalePrice);
+  $('h-margin-eur').textContent = marginInfo(result, page.inputs.parkingSalePrice);
+  // Erste Zeile: Objektpreis in € (nicht EN) bzw. €/m² (EN). Zweite Zeile: Stellplatz, falls vorhanden.
+  $('h-vk-sqm').textContent = sqm ? Fmt.currency(result.objectSalePrice) : Fmt.perSqm(result.objectSalePricePerSqm);
+  setHint($('h-vk-parking'), parkingSalesInfo(result, page.inputs.parkingSalePrice));
   $('h-gik').textContent = Fmt.currency(result.totalInvestment);
 }
 
