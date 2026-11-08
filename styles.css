@@ -67,8 +67,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   padding: 8px 0;
 }
 
-/* Kopf-Logo: ein Bild (Elegnt-Living-Schriftzug + „QuickCalc“). Logo-Teil = 60 px hoch,
-   Gesamtbild 335/180 × 60 = 111.67 px hoch, Breite 658/335 × 111.67 = 219.3 px.
+/* Kopf-Logo: ein Bild (ELEGNT / LIVING mit Linien / QuickCalc). Bild 504 × 188 px,
+   also Breite 504/3 = 168 px, Höhe 188/3 = 62.67 px (Retina-Bild @3x).
    Bei schmalen Displays schrumpft das Bild proportional (height: auto). */
 .title {
   margin: 0;
@@ -81,7 +81,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .logo {
   display: block;
-  width: 219.33px;
+  width: 168px;
   max-width: calc(100% - 12px);
   height: auto;
 }
