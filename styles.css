@@ -1,0 +1,464 @@
+/* Farben wie Theme.swift. Die App ist immer dunkel. */
+:root {
+  --bg: #313E4F;
+  --accent: #E1D2A5;
+  --on-accent: #313E4F;
+  --text: #E1D2A5;
+  --secondary: rgba(225, 210, 165, 0.6);
+  --field-border: rgba(225, 210, 165, 0.45);
+  --seg-inactive: rgb(38, 50, 65);
+  --slider-track: rgb(74, 87, 104);
+  --warning: rgb(228, 86, 74);
+  --pad: 24px;
+  color-scheme: dark;
+}
+
+@media (max-width: 400px) {
+  :root { --pad: 16px; }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html { background: var(--bg); -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, system-ui, "Helvetica Neue", Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, input { font: inherit; color: inherit; }
+
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.noscript { padding: 24px; text-align: center; }
+
+/* Layout: maximal 600 px, zentriert, Safe-Area beachten */
+.app {
+  max-width: 600px;
+  margin: 0 auto;
+  padding-left: calc(var(--pad) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--pad) + env(safe-area-inset-right, 0px));
+}
+
+/* Kopf und Ergebnis bleiben beim Scrollen oben stehen */
+.sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  height: 56px;
+}
+
+.title {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(16px, 5.6vw, 22px);
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--secondary);
+  border-radius: 50%;
+}
+
+.icon-btn svg { width: 24px; height: 24px; }
+
+/* Kapsel-Umschalter (PillSegment) */
+.seg {
+  display: flex;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--seg-inactive);
+  border: 1.5px solid var(--accent);
+  margin: 0;
+}
+
+.seg-main { margin-top: 12px; }
+
+.seg-sub {
+  height: 30px;
+  margin-top: 8px;
+}
+
+.seg-btn {
+  flex: 1;
+  min-width: 0;
+  margin: 3px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.seg-sub .seg-btn { font-size: 15px; }
+
+.seg-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+  border-color: var(--on-accent);
+}
+
+/* Ergebniskopf 2 × 2 */
+.result {
+  padding-top: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--field-border);
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+
+.cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cap {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.fig {
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.fig.big { font-size: 26px; }
+
+.fig.warn { color: var(--warning); }
+
+.sub {
+  font-size: 12px;
+  line-height: 1.3;
+  min-height: 1em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.warn-text {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--warning);
+}
+
+/* Editierbare Marge im Kopf (Rahmen + Stift) */
+.margin-field {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+}
+
+.margin-field:focus-within { border-color: var(--accent); }
+
+.margin-field svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--secondary);
+}
+
+.head-input {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 26px;
+  line-height: 1.2;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Formular */
+.form { padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+
+.group-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--secondary);
+}
+
+.std-btn {
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--secondary);
+  padding: 4px 10px;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+}
+
+.row { padding-bottom: 18px; }
+
+.row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.label-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+}
+
+.label {
+  min-width: 0;
+  color: var(--text);
+}
+
+.hint {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Zahlenfeld (Pill) */
+.pill {
+  flex: none;
+  width: 120px;
+  height: 36px;
+  padding: 0 10px;
+  margin: 0;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  background: transparent;
+  text-align: center;
+  font-size: 16px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill:focus { border-color: var(--accent); }
+
+/* Gesperrte Zeile mit Schloss */
+.locked {
+  flex: none;
+  width: 124px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.locked svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.locked-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Schieberegler in Akzentfarbe */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+  --pos: 0%;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right,
+    var(--accent) 0%, var(--accent) var(--pos),
+    var(--slider-track) var(--pos), var(--slider-track) 100%);
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--slider-track);
+}
+
+.slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* Dialoge */
+dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: 88vh;
+  margin: auto;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--field-border);
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
+
+.dlg-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.set-sec { margin-bottom: 18px; }
+
+.set-sec h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--secondary);
+}
+
+.set-sec .seg {
+  margin-top: 0;
+  height: auto;
+  min-height: 44px;
+}
+
+.set-sec .seg-btn {
+  font-size: 15px;
+  line-height: 1.15;
+  padding: 6px 6px;
+  text-align: center;
+  white-space: normal;
+}
+
+.set-foot {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--secondary);
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-top: 4px;
+  border: 1px solid var(--field-border);
+  border-radius: 12px;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.btn-danger {
+  color: var(--warning);
+  border-color: rgba(228, 86, 74, 0.6);
+}
+
+.dlg-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.dlg-actions .btn {
+  flex: 1;
+  width: auto;
+}

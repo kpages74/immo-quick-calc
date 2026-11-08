@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Immo Quick-Calc</title>
+  <meta name="description" content="Schnellkalkulation: maximaler Einkaufspreis, Marge und Gesamtinvestition für Immobilien.">
+  <meta name="theme-color" content="#313E4F">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Quick-Calc">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <div class="sticky-top">
+      <header class="topbar">
+        <span aria-hidden="true"></span>
+        <h1 class="title">IMMO QUICK-CALC</h1>
+        <button type="button" id="open-settings" class="icon-btn" aria-label="Einstellungen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="6.2"/>
+            <circle cx="12" cy="12" r="2.4"/>
+            <path d="M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8"/>
+          </svg>
+        </button>
+      </header>
+
+      <div class="seg seg-main" id="seg-mode" role="group" aria-label="Nutzungsart"></div>
+      <div class="seg seg-sub" id="seg-variant" role="group" aria-label="Unterart bei Leerstehend" hidden></div>
+
+      <section class="result" aria-label="Ergebnis">
+        <div class="result-grid">
+          <div class="cell">
+            <div class="cap">Max. Einkaufspreis</div>
+            <div class="fig big fit" id="h-max"></div>
+            <div class="sub fit" id="h-max-sqm"></div>
+            <div class="warn-text" id="h-max-warn" hidden>Bei diesen Kosten kein Ankauf möglich</div>
+          </div>
+          <div class="cell">
+            <div class="cap">Marge</div>
+            <div id="margin-slot"></div>
+            <div class="sub fit" id="h-margin-eur"></div>
+          </div>
+          <div class="cell">
+            <div class="cap">GIK</div>
+            <div class="fig small fit" id="h-gik"></div>
+            <div class="sub">&nbsp;</div>
+          </div>
+          <div class="cell" id="cell-4"></div>
+        </div>
+      </section>
+    </div>
+
+    <main class="form" id="form"></main>
+  </div>
+
+  <dialog id="dlg-settings" aria-labelledby="settings-title">
+    <h2 id="settings-title" class="dlg-title">Einstellungen</h2>
+    <section class="set-sec">
+      <h3>Marge-Basis</h3>
+      <div class="seg" id="set-margin" role="group" aria-label="Marge-Basis"></div>
+      <p class="set-foot">Vom Verkaufspreis: Marge = Verkaufspreis × Zielmarge. Auf GIK: die Marge wird auf die Gesamtinvestition aufgeschlagen.</p>
+    </section>
+    <section class="set-sec">
+      <h3>Kaufnebenkosten</h3>
+      <div class="seg" id="set-closing" role="group" aria-label="Kaufnebenkosten"></div>
+      <p class="set-foot">In % werden die Kaufnebenkosten als Anteil vom Einkaufspreis gerechnet.</p>
+    </section>
+    <section class="set-sec">
+      <button type="button" class="btn btn-danger" id="btn-reset">Alle Eingaben zurücksetzen</button>
+      <p class="set-foot">Setzt Objektwerte und Parameter beider Seiten auf die Standardwerte zurück; die Einstellungen bleiben.</p>
+    </section>
+    <button type="button" class="btn btn-primary" id="btn-settings-done">Fertig</button>
+  </dialog>
+
+  <dialog id="dlg-reset" aria-labelledby="reset-title">
+    <h2 id="reset-title" class="dlg-title">Alle Eingaben zurücksetzen?</h2>
+    <p class="set-foot">Objektwerte und Parameter beider Seiten werden auf die Standardwerte gesetzt.</p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="btn-reset-cancel">Abbrechen</button>
+      <button type="button" class="btn btn-danger" id="btn-reset-confirm">Zurücksetzen</button>
+    </div>
+  </dialog>
+
+  <noscript><p class="noscript">Diese Seite benötigt JavaScript.</p></noscript>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
