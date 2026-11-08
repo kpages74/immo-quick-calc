@@ -2,7 +2,7 @@
 // Spiegelt CalcEngine/CalcEngine.swift, Formatting.swift, NumberParser.swift und FieldSpec.swift.
 // Keine DOM-Zugriffe. Prozentwerte werden als Prozentzahl gespeichert (20 = 20 %).
 
-export const KIND = Object.freeze({ VERMIETET: 'vermietet', KAP: 'kap', EN: 'en' });
+export const KIND = Object.freeze({ VERMIETET: 'vermietet', KAP: 'kap', EN: 'en', WG: 'wg' });
 export const MARGIN_BASIS = Object.freeze({ SALES_PRICE: 'salesPrice', TOTAL_INVESTMENT: 'totalInvestment' });
 export const CLOSING_MODE = Object.freeze({ EURO: 'euro', PERCENT: 'percent' });
 
@@ -18,7 +18,14 @@ export const DEFAULT_INPUTS = Object.freeze({
   closingCostsPercent: 11,
   renovationCosts: 20000,
   otherCosts: 0,
+  // WG (Seite WG): Zimmer, Kaltmiete je Zimmer, Stellplatzanzahl. Stellplatzmiete steht in parkingRent.
+  wgRooms: 3,
+  wgRoomRent: 500,
+  wgParkingCount: 0,
 });
+
+/** Standardwerte der Seite WG: Miete je Stellplatz 50 €. */
+export const DEFAULT_INPUTS_WG = Object.freeze({ ...DEFAULT_INPUTS, parkingRent: 50 });
 
 /** Standardeinstellungen (CalcSettings in Models.swift). */
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -42,10 +49,10 @@ export const NO_FINANCING = Object.freeze({ ...DEFAULT_FINANCING, loanPercent: 0
 /** Standardparameter je Kalkulationsart (CalcParameters.defaults(kind:)). */
 export function defaultParameters(kind) {
   return {
-    targetMargin: kind === KIND.VERMIETET ? 20 : 17,
+    targetMargin: kind === KIND.VERMIETET || kind === KIND.WG ? 20 : 17,
     salesCommission: 0,
     rentPerSqm: 12,
-    targetYield: 4.5,
+    targetYield: kind === KIND.WG ? 6.5 : 4.5,
     rentSurchargePercent: 15,
   };
 }
@@ -55,13 +62,14 @@ export function defaultParameters(kind) {
  * Der Schlüssel entspricht dem Feldnamen in inputs bzw. parameters.
  */
 export const FIELDS = Object.freeze({
-  salePricePerSqm: { label: 'Verkaufspreis Objekt', unit: 'euroPerSqm', min: 0, max: 15000, step: 10, digits: 0 },
+  salePricePerSqm: { label: 'Verkaufspreis', unit: 'euroPerSqm', min: 0, max: 15000, step: 10, digits: 0 },
   rentPerSqm: { label: 'Miete je m² p. M.', unit: 'euroPerSqm', min: 0, max: 50, step: 0.1, digits: 2 },
   targetYield: { label: 'Rendite Käufer', unit: 'percent', min: 0, max: 10, step: 0.1, digits: 1 },
-  salePrice: { label: 'Verkaufspreis Objekt', unit: 'euro', min: 0, max: 2000000, step: 1000, digits: 0 },
+  salePrice: { label: 'Verkaufspreis', unit: 'euro', min: 0, max: 2000000, step: 1000, digits: 0 },
   parkingSalePrice: { label: 'Verkaufspreis Stellplatz/Garage', unit: 'euro', min: 0, max: 40000, step: 500, digits: 0 },
   rent: { label: 'Ist-Miete p. M.', unit: 'euro', min: 0, max: 3000, step: 10, digits: 0 },
-  rentSurcharge: { label: 'Soll-Miete', unit: 'percent', min: 0, max: 50, step: 0.5, digits: 1 },
+  // signed: Anzeige mit Pluszeichen („+15,0 %“), Bearbeitungstext ohne Zeichen.
+  rentSurcharge: { label: 'Soll-Miete', unit: 'percent', min: 0, max: 50, step: 0.5, digits: 1, signed: true },
   livingArea: { label: 'Wohnfläche', unit: 'squareMeter', min: 0, max: 600, step: 1, digits: 0 },
   parkingRent: { label: 'Miete Stellplatz/Garage p. M.', unit: 'euro', min: 0, max: 300, step: 5, digits: 0 },
   closingCostsEuro: { label: 'Kaufnebenkosten', unit: 'euro', min: 0, max: 50000, step: 500, digits: 0 },
@@ -75,6 +83,14 @@ export const FIELDS = Object.freeze({
   repaymentPercent: { label: 'Tilgung', unit: 'percent', min: 0, max: 10, step: 0.1, digits: 1 },
   durationMonths: { label: 'Projektlaufzeit', unit: 'months', min: 1, max: 60, step: 1, digits: 0 },
   processingFeePercent: { label: 'Bearbeitungsgebühr', unit: 'percent', min: 0, max: 5, step: 0.1, digits: 1 },
+  // Seite WG: eigene Bereiche und Einheiten.
+  wgRooms: { label: 'Anzahl WG-Zimmer', unit: 'rooms', min: 1, max: 10, step: 1, digits: 0 },
+  wgRoomRent: { label: 'Durchschn. Kaltmiete je Zimmer', unit: 'euro', min: 0, max: 1500, step: 10, digits: 0 },
+  wgParkingCount: { label: 'Anzahl Stellplätze', unit: 'pieces', min: 0, max: 10, step: 1, digits: 0 },
+  wgParkingRent: { label: 'Miete je Stellplatz p. M.', unit: 'euro', min: 0, max: 300, step: 5, digits: 0 },
+  wgRenovation: { label: 'Sanierungskosten', unit: 'euro', min: 0, max: 100000, step: 500, digits: 0 },
+  wgOther: { label: 'Sonstige Kosten', unit: 'euro', min: 0, max: 100000, step: 500, digits: 0 },
+  wgYield: { label: 'Rendite Käufer', unit: 'percent', min: 1, max: 15, step: 0.1, digits: 1 },
 });
 
 /** Begrenzt einen Wert auf den Bereich des Feldes (z. B. Zielmarge 0…100). */
@@ -164,6 +180,17 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
       parkingPriceValue = parking * factor;
     }
     // Rendite 0: kein Objektpreis, alle abhängigen Ergebnisse bleiben „–“.
+  } else if (kind === KIND.WG) {
+    // Kaltmiete aller Zimmer × 12 / Rendite = Objektpreis. Stellplätze × Stellplatzmiete × 12 / Rendite.
+    const yieldFraction = nonNegative(params.targetYield) / 100;
+    const roomRentTotal = nonNegative(inputs.wgRooms) * nonNegative(inputs.wgRoomRent);
+    monthlyRent = roomRentTotal;
+    if (yieldFraction > 0) {
+      const factor = 12 / yieldFraction;
+      objectPrice = roomRentTotal * factor;
+      parkingPriceValue = nonNegative(inputs.wgParkingCount) * parking * factor;
+    }
+    // Rendite 0: kein Objektpreis, alle abhängigen Ergebnisse bleiben „–“.
   } else if (kind === KIND.KAP) {
     const rentPerSqm = nonNegative(params.rentPerSqm);
     const yieldFraction = nonNegative(params.targetYield) / 100;
@@ -189,7 +216,8 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
     return emptyResult({ currentRentPerSqm, renovationPerSqm, monthlyRent, targetRent, targetRentPerSqm });
   }
 
-  const percentMode = settings.closingCostMode === 'percent';
+  // WG rechnet die Kaufnebenkosten immer in Prozent.
+  const percentMode = kind === KIND.WG || settings.closingCostMode === 'percent';
   const totalBasis = settings.marginBasis === 'totalInvestment';
 
   // 1. Verkaufspreis gesamt (Objekt + Stellplatz/Garage)
@@ -323,6 +351,10 @@ export const Fmt = Object.freeze({
   percent: (value) => withUnit(value, 2, '%'),
   /** „1.995,99 €/m²“ */
   perSqm: (value) => withUnit(value, 2, '€/m²'),
+  /** „92.307,69 € je Zimmer“: Wert geteilt durch die Zimmerzahl. „–“ ohne Wert oder bei 0 Zimmern. */
+  perRoom: (value, rooms) => (typeof value === 'number' && Number.isFinite(value) && rooms > 0
+    ? withUnit(value / rooms, 2, '€') + ' je Zimmer'
+    : DASH),
   /** Anzeige im Eingabefeld mit fester Stellenzahl: „294.456“, „15,0“ */
   fieldNumber: (value, digits) => formatFixed(value, digits),
   /** Bearbeitungstext: ohne Tausenderpunkte, bis 2 Nachkommastellen, ohne überflüssige Nullen. */
@@ -336,11 +368,12 @@ export const Fmt = Object.freeze({
 
 /**
  * Anzeige eines Zahlenfeldes ohne Fokus mit Einheit, wie FieldSpec.displayText in der App:
- * „250.000 €“, „60 m²“, „10,0 %“, „4.000 €/m²“. Geschütztes Leerzeichen vor der Einheit.
+ * „250.000 €“, „60 m²“, „10,0 %“, „4.000 €/m²“, Soll-Miete „+15,0 %“. Geschütztes Leerzeichen vor der Einheit.
  */
-const FIELD_SUFFIX = Object.freeze({ euro: '€', euroPerSqm: '€/m²', squareMeter: 'm²', percent: '%', months: 'Monate' });
+const FIELD_SUFFIX = Object.freeze({ euro: '€', euroPerSqm: '€/m²', squareMeter: 'm²', percent: '%', months: 'Monate', rooms: 'Zimmer', pieces: 'Stk.' });
 export function fieldDisplay(spec, value) {
-  return Fmt.fieldNumber(value, spec.digits) + NBSP + FIELD_SUFFIX[spec.unit];
+  const sign = spec.signed && value >= 0 ? '+' : '';
+  return sign + Fmt.fieldNumber(value, spec.digits) + NBSP + FIELD_SUFFIX[spec.unit];
 }
 
 // MARK: - Zahleneingabe (NumberParser.swift)
@@ -355,6 +388,8 @@ export function parseNumber(text) {
     if (/\s/.test(ch) || ch === ' ' || ch === ' ' || ch === '€' || ch === '%') continue;
     cleaned += ch;
   }
+  // Ein führendes Pluszeichen ist erlaubt („+15“ bei Soll-Miete).
+  if (cleaned.startsWith('+')) cleaned = cleaned.slice(1);
   if (cleaned === '') return null;
   if (!/^[0-9.,]+$/.test(cleaned)) return null;
 

@@ -130,6 +130,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .seg-sub .seg-btn { font-size: 15px; }
 
+/* Drei Segmente (Vermietet | Leerstehend | WG): kleinere Schrift, damit Abstand und Innenrand reichen. */
+#seg-mode .seg-btn { font-size: 17px; padding: 0 6px; }
+@media (max-width: 360px) {
+  #seg-mode .seg-btn { font-size: 14px; padding: 0 3px; }
+}
+
 .seg-btn[aria-pressed="true"] {
   background: var(--accent);
   color: var(--on-accent);
@@ -262,28 +268,25 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   margin-bottom: 2px;
 }
 
-/* Beschriftung und Hinweis bleiben in einer Zeile (wie in der App), damit die Zeilenhöhe beim Commit gleich bleibt. */
+/* Label in voller Größe, Info-Text darunter (wie in der App). Umbruch statt Abschneiden. */
 .label-wrap {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  column-gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .label {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
   color: var(--text);
 }
 
 .hint {
-  flex: none;
   font-size: 13px;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 /* Schalter unter dem Regler (Tilgung einrechnen) */
@@ -320,6 +323,33 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 
 .pill:focus { border-color: var(--accent); }
+
+/* Schloss-Knopf links neben der Pill (Soll-Miete entsperren/sperren) */
+.lock-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--secondary);
+  border-radius: 50%;
+}
+
+.lock-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Gesperrte Zeile: Regler und Pill gedimmt und nicht bedienbar */
+.row.is-locked .pill,
+.row.is-locked .slider {
+  opacity: 0.4;
+}
+
+.pill:disabled,
+.slider:disabled {
+  cursor: default;
+}
 
 /* Gesperrte Zeile mit Schloss */
 .locked {

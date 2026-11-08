@@ -2,6 +2,7 @@ import {
   compute,
   defaultParameters,
   DEFAULT_INPUTS,
+  DEFAULT_INPUTS_WG,
   DEFAULT_SETTINGS,
   DEFAULT_FINANCING,
   FIELDS,
@@ -21,31 +22,45 @@ const STORAGE_KEYS = {
   kap: 'iqc.page.kap',
   leerstehend: 'iqc.page.leerstehend',
   financing: 'iqc.financing',
+  rentSurchargeUnlocked: 'iqc.rentSurcharge.unlocked',
+  wg: 'iqc.page.wg',
 };
 
 // Felder, die in parameters statt in inputs liegen.
 const PARAM_KEYS = new Set(['targetMargin', 'salesCommission', 'rentPerSqm', 'targetYield', 'rentSurchargePercent']);
 
+// Feldname im Formular -> Schlüssel in inputs/parameters, wenn beide verschieden heißen
+// (Soll-Miete: rentSurchargePercent; Seite WG: eigene Bereiche, gleiche Daten wie die anderen Seiten).
+const DATA_KEY = {
+  rentSurcharge: 'rentSurchargePercent',
+  wgRenovation: 'renovationCosts',
+  wgOther: 'otherCosts',
+  wgParkingRent: 'parkingRent',
+  wgYield: 'targetYield',
+};
+
 // Felder der Finanzierung (global, nicht je Seite).
 const FINANCING_KEYS = new Set(['loanPercent', 'interestPercent', 'repaymentPercent', 'durationMonths', 'processingFeePercent']);
 
 // Datensatz je Kalkulationsart.
-const PAGE_KEY = { vermietet: 'vermietet', kap: 'kap', en: 'leerstehend' };
+const PAGE_KEY = { vermietet: 'vermietet', kap: 'kap', en: 'leerstehend', wg: 'wg' };
 
 // Vierte Kopfzelle je Art.
 const CELL4 = {
   vermietet: { caption: 'Verkaufspreis', fig: (r) => Fmt.currency(r.salePrice), sub: (r) => Fmt.perSqm(r.objectSalePricePerSqm) },
   kap: { caption: 'Miete p. M.', fig: (r) => Fmt.currency(r.monthlyRent), sub: (r) => Fmt.perSqm(r.currentRentPerSqm) },
+  wg: { caption: 'Verkaufspreis', fig: (r) => Fmt.currency(r.salePrice), sub: (r, inputs) => Fmt.perRoom(r.salePrice, inputs.wgRooms) },
   en: { caption: 'Vertriebskosten', fig: (r) => Fmt.currency(r.salesCommission), sub: () => ' ' },
 };
 
 const LOCK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
-const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4L16 5l3 3L8 19z"/></svg>';
+const LOCK_OPEN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V7.5a4 4 0 0 1 8 0" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+const PENCIL_SVG ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4L16 5l3 3L8 19z"/></svg>';
 
 // MARK: - Zustand
 
 function makePage(kind) {
-  return { inputs: { ...DEFAULT_INPUTS }, parameters: defaultParameters(kind) };
+  return { inputs: { ...(kind === 'wg' ? DEFAULT_INPUTS_WG : DEFAULT_INPUTS) }, parameters: defaultParameters(kind) };
 }
 
 const state = {
@@ -56,12 +71,16 @@ const state = {
     vermietet: makePage('vermietet'),
     kap: makePage('kap'),
     leerstehend: makePage('en'),
+    wg: makePage('wg'),
   },
   financing: { ...DEFAULT_FINANCING },
+  // Soll-Miete ist standardmäßig gesperrt (fehlt der Wert im Speicher, gilt „gesperrt“).
+  rentSurchargeUnlocked: false,
 };
 
 function currentKind() {
   if (state.mode === 'vermietet') return 'vermietet';
+  if (state.mode === 'wg') return 'wg';
   return state.variant === 'kap' ? 'kap' : 'en';
 }
 
@@ -114,7 +133,7 @@ function sanitizePage(raw, kind) {
 
 function loadState() {
   const mode = readJSON(STORAGE_KEYS.mode);
-  if (mode === 'vermietet' || mode === 'leerstehend') state.mode = mode;
+  if (mode === 'vermietet' || mode === 'leerstehend' || mode === 'wg') state.mode = mode;
 
   const variant = readJSON(STORAGE_KEYS.variant);
   if (variant === 'kap' || variant === 'en') state.variant = variant;
@@ -132,7 +151,9 @@ function loadState() {
   state.pages.vermietet = sanitizePage(readJSON(STORAGE_KEYS.vermietet), 'vermietet');
   state.pages.kap = sanitizePage(readJSON(STORAGE_KEYS.kap), 'kap');
   state.pages.leerstehend = sanitizePage(readJSON(STORAGE_KEYS.leerstehend), 'en');
+  state.pages.wg = sanitizePage(readJSON(STORAGE_KEYS.wg), 'wg');
   state.financing = sanitizeFinancing(readJSON(STORAGE_KEYS.financing));
+  state.rentSurchargeUnlocked = readJSON(STORAGE_KEYS.rentSurchargeUnlocked) === true;
 }
 
 function saveState() {
@@ -142,7 +163,9 @@ function saveState() {
   writeJSON(STORAGE_KEYS.vermietet, state.pages.vermietet);
   writeJSON(STORAGE_KEYS.kap, state.pages.kap);
   writeJSON(STORAGE_KEYS.leerstehend, state.pages.leerstehend);
+  writeJSON(STORAGE_KEYS.wg, state.pages.wg);
   writeJSON(STORAGE_KEYS.financing, state.financing);
+  writeJSON(STORAGE_KEYS.rentSurchargeUnlocked, state.rentSurchargeUnlocked);
 }
 
 function changed() {
@@ -295,11 +318,16 @@ function holderOf(key) {
   return currentPage().inputs;
 }
 
-function inputRow(key, { hint = null, toggle = null } = {}) {
+/**
+ * Zeile mit Zahlenfeld und Regler. lock: Schloss-Knopf links neben der Pill (Soll-Miete).
+ * Gesperrt sind Regler und Pill (gedimmt), der Info-Text bleibt aktiv.
+ */
+function inputRow(key, { hint = null, toggle = null, lock = false } = {}) {
   const spec = FIELDS[key];
-  const get = () => holderOf(key)[key];
+  const dataKey = DATA_KEY[key] ?? key;
+  const get = () => holderOf(dataKey)[dataKey];
   const set = (value) => {
-    holderOf(key)[key] = value;
+    holderOf(dataKey)[dataKey] = value;
     changed();
   };
 
@@ -311,7 +339,19 @@ function inputRow(key, { hint = null, toggle = null } = {}) {
   labelWrap.append(hintEl);
 
   const field = numberField({ spec, get, set });
-  head.append(labelWrap, field.el);
+
+  let lockBtn = null;
+  if (lock) {
+    lockBtn = el('button', 'lock-btn');
+    lockBtn.type = 'button';
+    lockBtn.addEventListener('click', () => {
+      state.rentSurchargeUnlocked = !state.rentSurchargeUnlocked;
+      changed();
+    });
+    head.append(labelWrap, lockBtn, field.el);
+  } else {
+    head.append(labelWrap, field.el);
+  }
 
   const slider = el('input', 'slider');
   slider.type = 'range';
@@ -346,6 +386,16 @@ function inputRow(key, { hint = null, toggle = null } = {}) {
       slider.style.setProperty('--pos', `${sliderFraction(key, value) * 100}%`);
       setHint(hintEl, hint ? hint(result) : null);
       if (check) check.checked = Boolean(state.financing[toggle.key]);
+      if (lockBtn) {
+        const locked = !state.rentSurchargeUnlocked;
+        root.classList.toggle('is-locked', locked);
+        field.el.disabled = locked;
+        slider.disabled = locked;
+        lockBtn.innerHTML = locked ? LOCK_SVG : LOCK_OPEN_SVG;
+        const label = locked ? `${spec.label} entsperren` : `${spec.label} sperren`;
+        lockBtn.setAttribute('aria-label', label);
+        lockBtn.title = label;
+      }
     },
   };
 }
@@ -422,14 +472,21 @@ function buildForm(kind) {
 
   // Kauf: alle Werte für den Ankauf, ohne Button.
   const purchaseGroup = addGroup('Kauf');
-  addRow(purchaseGroup, inputRow('livingArea'));
-  if (state.settings.closingCostMode === 'euro') {
-    addRow(purchaseGroup, inputRow('closingCostsEuro'));
-  } else {
+  if (kind === 'wg') {
+    // WG: keine Wohnfläche, Kaufnebenkosten immer in %, Sanierung und Sonstige im WG-Bereich.
     addRow(purchaseGroup, inputRow('closingCostsPercent', { hint: (r) => Fmt.currency(r.closingCosts) }));
+    addRow(purchaseGroup, inputRow('wgRenovation'));
+    addRow(purchaseGroup, inputRow('wgOther'));
+  } else {
+    addRow(purchaseGroup, inputRow('livingArea'));
+    if (state.settings.closingCostMode === 'euro') {
+      addRow(purchaseGroup, inputRow('closingCostsEuro'));
+    } else {
+      addRow(purchaseGroup, inputRow('closingCostsPercent', { hint: (r) => Fmt.currency(r.closingCosts) }));
+    }
+    addRow(purchaseGroup, inputRow('renovationCosts', { hint: (r) => Fmt.perSqm(r.renovationPerSqm) }));
+    addRow(purchaseGroup, inputRow('otherCosts'));
   }
-  addRow(purchaseGroup, inputRow('renovationCosts', { hint: (r) => Fmt.perSqm(r.renovationPerSqm) }));
-  addRow(purchaseGroup, inputRow('otherCosts'));
 
   // Verkauf mit Standard-Button (setzt die Parameter der Art zurück).
   const standard = el('button', 'std-btn', 'Standard');
@@ -441,7 +498,7 @@ function buildForm(kind) {
   const salesGroup = addGroup('Verkauf', standard);
 
   if (kind === 'vermietet') {
-    // Verkaufspreis Objekt ist berechnet (Schloss), aus Soll-Miete und Rendite Käufer.
+    // Verkaufspreis ist berechnet (Schloss), aus Soll-Miete und Rendite Käufer.
     addRow(salesGroup, lockedRow(FIELDS.salePricePerSqm.label, {
       hint: (r) => Fmt.currency(r.objectSalePrice),
       value: (r) => Fmt.perSqm(r.objectSalePricePerSqm),
@@ -449,6 +506,7 @@ function buildForm(kind) {
     addRow(salesGroup, inputRow('rent', { hint: (r) => Fmt.perSqm(r.currentRentPerSqm) }));
     addRow(salesGroup, inputRow('rentSurcharge', {
       hint: (r) => `${Fmt.currency(r.targetRent)} · ${Fmt.perSqm(r.targetRentPerSqm)}`,
+      lock: true,
     }));
     addRow(salesGroup, inputRow('parkingRent'));
     addRow(salesGroup, inputRow('targetYield'));
@@ -461,6 +519,18 @@ function buildForm(kind) {
     addRow(salesGroup, inputRow('rentPerSqm', { hint: (r) => Fmt.currency(r.monthlyRent) }));
     addRow(salesGroup, inputRow('targetYield'));
     addRow(salesGroup, inputRow('parkingSalePrice'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
+  } else if (kind === 'wg') {
+    // Verkaufspreis = berechnet (Schloss), Info-Text: Verkaufspreis je Zimmer.
+    addRow(salesGroup, lockedRow(FIELDS.salePrice.label, {
+      hint: (r) => Fmt.perRoom(r.salePrice, currentPage().inputs.wgRooms),
+      value: (r) => Fmt.currency(r.salePrice),
+    }));
+    addRow(salesGroup, inputRow('wgRooms'));
+    addRow(salesGroup, inputRow('wgRoomRent', { hint: (r) => Fmt.currency(r.monthlyRent) }));
+    addRow(salesGroup, inputRow('wgParkingCount'));
+    addRow(salesGroup, inputRow('wgParkingRent'));
+    addRow(salesGroup, inputRow('wgYield'));
     addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
   } else {
     addRow(salesGroup, inputRow('salePrice', { hint: (r) => Fmt.perSqm(r.objectSalePricePerSqm) }));
@@ -537,12 +607,16 @@ function updateHeader(result) {
   maxEl.classList.toggle('warn', !possible);
   // Eine Zeile unter dem EK: €/m² bei möglichem Ankauf, sonst der Hinweis. Gleiche Höhe, keine Lücke.
   const sqmEl = $('h-max-sqm');
-  sqmEl.textContent = possible ? Fmt.perSqm(result.maxPurchasePricePerSqm) : 'Kein Ankauf möglich';
+  sqmEl.textContent = possible
+    ? (currentKind() === 'wg'
+      ? Fmt.perRoom(result.maxPurchasePrice, currentPage().inputs.wgRooms)
+      : Fmt.perSqm(result.maxPurchasePricePerSqm))
+    : 'Kein Ankauf möglich';
   sqmEl.classList.toggle('warn', !possible);
   $('h-margin-eur').textContent = Fmt.currency(result.marginEuro);
   $('h-gik').textContent = Fmt.currency(result.totalInvestment);
   cell4.fig.textContent = CELL4[cell4.kind].fig(result);
-  cell4.sub.textContent = CELL4[cell4.kind].sub(result);
+  cell4.sub.textContent = CELL4[cell4.kind].sub(result, currentPage().inputs);
 }
 
 // MARK: - Einstellungen
@@ -559,6 +633,7 @@ function resetAll() {
   state.pages.vermietet = makePage('vermietet');
   state.pages.kap = makePage('kap');
   state.pages.leerstehend = makePage('en');
+  state.pages.wg = makePage('wg');
   state.financing = { ...DEFAULT_FINANCING };
   changed();
 }
@@ -599,6 +674,7 @@ function init() {
     [
       { value: 'vermietet', label: 'Vermietet' },
       { value: 'leerstehend', label: 'Leerstehend' },
+      { value: 'wg', label: 'WG' },
     ],
     () => state.mode,
     (value) => {

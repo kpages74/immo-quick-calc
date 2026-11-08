@@ -7,6 +7,7 @@ import {
   parseNumber,
   clampField,
   DEFAULT_INPUTS,
+  DEFAULT_INPUTS_WG,
   DEFAULT_SETTINGS,
   DEFAULT_FINANCING,
   FIELDS,
@@ -295,8 +296,27 @@ test('Feldanzeige Monate und Finanzierungsfelder', () => {
 
 test('Feldanzeige Bearbeitungsgebühr, Soll-Miete und Ist-Miete', () => {
   assert.equal(fieldDisplay(FIELDS.processingFeePercent, 1), '1,0 %');
-  assert.equal(fieldDisplay(FIELDS.rentSurcharge, 15), '15,0 %');
+  assert.equal(fieldDisplay(FIELDS.rentSurcharge, 15), '+15,0 %');
   assert.equal(FIELDS.rent.label, 'Ist-Miete p. M.');
+});
+
+test('Soll-Miete Anzeige mit Pluszeichen, bei 0 als „+0,0 %“', () => {
+  assert.equal(fieldDisplay(FIELDS.rentSurcharge, 15), '+15,0\u00A0%');
+  assert.equal(fieldDisplay(FIELDS.rentSurcharge, 0), '+0,0\u00A0%');
+  assert.equal(fieldDisplay(FIELDS.rentSurcharge, 12.5), '+12,5\u00A0%');
+  // Bearbeitungstext ohne Pluszeichen, Eingabe mit Pluszeichen wird akzeptiert.
+  assert.equal(Fmt.editingNumber(15), '15');
+  assert.equal(parseNumber('+15'), 15);
+  assert.equal(parseNumber('+15,5 %'), 15.5);
+  assert.equal(parseNumber('+'), null);
+  // Andere Felder ohne Vorzeichen.
+  assert.equal(fieldDisplay(FIELDS.targetYield, 4.5), '4,5\u00A0%');
+});
+
+test('Label „Verkaufspreis“ ohne „Objekt“ für beide Verkaufspreis-Felder', () => {
+  assert.equal(FIELDS.salePrice.label, 'Verkaufspreis');
+  assert.equal(FIELDS.salePricePerSqm.label, 'Verkaufspreis');
+  assert.equal(FIELDS.parkingSalePrice.label, 'Verkaufspreis Stellplatz/Garage');
 });
 
 test('T1 EN Finanzierung mit Bearbeitungsgebühr 1 %: EK 200.956,94, F 9.043,06', () => {
@@ -308,3 +328,58 @@ test('T1 EN Finanzierung mit Bearbeitungsgebühr 1 %: EK 200.956,94, F 9.043,06'
   // Invariante: EK + KNK + K + M + F = N (VK 300.000, Marge 60.000, K 20.000, KNK 10.000)
   assert.equal(round2(r.maxPurchasePrice + 10000 + 20000 + 60000 + r.financingCosts), 300000);
 });
+
+// Seite WG (Prüfwerte wie in CalcKindTests.swift, WGTests)
+const WG_PARAMS = { targetMargin: 20, salesCommission: 0, rentPerSqm: 12, targetYield: 6.5, rentSurchargePercent: 15 };
+const WG_PERCENT = { marginBasis: 'salesPrice', closingCostMode: 'percent' };
+const wgInputs = (overrides = {}) => ({ ...DEFAULT_INPUTS_WG, ...overrides });
+
+test('WG 3 Zimmer × 500 €, 0 Stellplätze: VK 276.923,08, Marge 55.384,62, EK 181.566,18', () => {
+  // VK = 1.500 × 12 / 0,065; Marge 20 % vom VK; EK = (VK − Marge − 20.000) / 1,11 (ohne Finanzierung)
+  const r = compute('wg', wgInputs(), WG_PARAMS, WG_PERCENT);
+  assert.equal(round2(r.salePrice), 276923.08);
+  assert.equal(round2(r.marginEuro), 55384.62);
+  assert.equal(round2(r.maxPurchasePrice), 181566.18);
+  assert.equal(round2(r.monthlyRent), 1500);
+  assert.equal(r.isPurchasePossible, true);
+  // Invariante: EK + KNK + Sanierung + Marge = VK
+  assert.equal(round2(r.maxPurchasePrice + r.closingCosts + 20000 + r.marginEuro), 276923.08);
+});
+
+test('WG 3 Zimmer, 2 Stellplätze à 50 €: VK 295.384,62', () => {
+  const r = compute('wg', wgInputs({ wgParkingCount: 2, parkingRent: 50 }), WG_PARAMS, WG_PERCENT);
+  assert.equal(round2(r.salePrice), 295384.62);
+});
+
+test('WG: Kaufnebenkosten immer in % (auch bei Einstellung in €)', () => {
+  const euro = compute('wg', wgInputs(), WG_PARAMS, { marginBasis: 'salesPrice', closingCostMode: 'euro' });
+  const percent = compute('wg', wgInputs(), WG_PARAMS, WG_PERCENT);
+  assert.equal(euro.maxPurchasePrice, percent.maxPurchasePrice);
+});
+
+test('WG Rendite 0 ergibt keinen Einkaufspreis', () => {
+  const r = compute('wg', wgInputs(), { ...WG_PARAMS, targetYield: 0 }, WG_PERCENT);
+  assert.equal(r.salePrice, null);
+  assert.equal(r.isPurchasePossible, false);
+});
+
+test('WG Standardwerte: 3 Zimmer, 500 €, 0 Stellplätze, 50 € je Stellplatz, Rendite 6,5 %, Marge 20 %', () => {
+  assert.equal(DEFAULT_INPUTS_WG.wgRooms, 3);
+  assert.equal(DEFAULT_INPUTS_WG.wgRoomRent, 500);
+  assert.equal(DEFAULT_INPUTS_WG.wgParkingCount, 0);
+  assert.equal(DEFAULT_INPUTS_WG.parkingRent, 50);
+  assert.equal(DEFAULT_INPUTS_WG.renovationCosts, 20000);
+  assert.equal(DEFAULT_INPUTS_WG.otherCosts, 0);
+  assert.equal(DEFAULT_INPUTS_WG.closingCostsPercent, 11);
+  assert.equal(defaultParameters(KIND.WG).targetYield, 6.5);
+  assert.equal(defaultParameters(KIND.WG).targetMargin, 20);
+});
+
+test('WG Feldanzeige mit Einheit Zimmer/Stk. und Anzeige je Zimmer', () => {
+  assert.equal(FIELDS.wgRooms.label, 'Anzahl WG-Zimmer');
+  assert.equal(fieldDisplay(FIELDS.wgRooms, 3), '3\u00A0Zimmer');
+  assert.equal(fieldDisplay(FIELDS.wgParkingCount, 0), '0\u00A0Stk.');
+  assert.equal(Fmt.perRoom(276923.08, 3), '92.307,69\u00A0€ je Zimmer');
+  assert.equal(Fmt.perRoom(null, 3), '–');
+});
+
