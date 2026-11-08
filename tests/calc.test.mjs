@@ -5,6 +5,7 @@ import {
   compute,
   applyManualSalePrice,
   salePriceFromManual,
+  manualPriceFromPerSqm,
   Fmt,
   parseNumber,
   clampField,
@@ -172,6 +173,24 @@ test('EN-Rückkehr: salePrice = manueller VK − Stellplatz; EK bleibt beim Wech
   assert.equal(round2(back.maxPurchasePrice), 172537.88);
   // Nicht unter 0.
   assert.equal(salePriceFromManual(10000, 15000), 0);
+});
+
+test('manualPriceFromPerSqm: 3.000 €/m² × 60 m² = 180.000 ohne Stellplatz', () => {
+  assert.equal(manualPriceFromPerSqm(3000, 60, 0), 180000);
+});
+
+test('manualPriceFromPerSqm: mit Stellplatzwert 15.000 ergibt 195.000', () => {
+  assert.equal(manualPriceFromPerSqm(3000, 60, 15000), 195000);
+});
+
+test('manualPriceFromPerSqm: negative €/m² werden auf 0 begrenzt, Stellplatz bleibt', () => {
+  assert.equal(manualPriceFromPerSqm(-5, 60, 100), 100);
+});
+
+test('manualPriceFromPerSqm: Fläche 0 ergibt nur den Stellplatzwert', () => {
+  assert.equal(manualPriceFromPerSqm(3000, 0, 15000), 15000);
+  assert.equal(manualPriceFromPerSqm(3000, 0, 0), 0);
+  assert.equal(manualPriceFromPerSqm(3000, -60, 15000), 15000);
 });
 
 test('Marge auf GIK: Marge 30.000, EK 150.000, Marge 20,00\u00A0%', () => {

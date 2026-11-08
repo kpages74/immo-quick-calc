@@ -461,3 +461,11 @@ export function applyManualSalePrice(std, manualPrice, commissionPercent, area) 
 export function salePriceFromManual(manualPrice, parkingSalePrice) {
   return Math.max(0, nonNegative(manualPrice) - nonNegative(parkingSalePrice));
 }
+
+/**
+ * VK-Modus, Eingabe in €/m² (Objektpreis ohne Stellplatz): manueller VK inkl. Stellplatz = €/m² × Wohnfläche + Stellplatzwert.
+ * Negative €/m²-Werte und Fläche werden auf 0 begrenzt. Bei Fläche 0 bleibt nur der Stellplatzwert.
+ */
+export function manualPriceFromPerSqm(perSqm, area, parkingValue) {
+  return nonNegative(perSqm) * nonNegative(area) + parkingValue;
+}

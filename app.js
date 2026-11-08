@@ -2,6 +2,7 @@ import {
   compute,
   applyManualSalePrice,
   salePriceFromManual,
+  manualPriceFromPerSqm,
   defaultParameters,
   DEFAULT_INPUTS,
   DEFAULT_INPUTS_WG,
@@ -588,10 +589,24 @@ const vkField = numberField({
   clamp: (value) => Math.max(0, value),
 });
 
+// Verkaufspreis je m² (nicht EN): Eingabe in €/m² (Objektpreis ohne Stellplatz). Gespeichert wird manualSalePrice inkl. Stellplatz.
+const vkSqmField = numberField({
+  spec: FIELDS.salePricePerSqm,
+  header: true,
+  get: () => lastResult?.objectSalePricePerSqm ?? 0,
+  set: (value) => {
+    currentPage().manualSalePrice = manualPriceFromPerSqm(value, currentPage().inputs.livingArea, lastStd?.parkingValue ?? 0);
+    changed();
+  },
+  display: (value) => Fmt.perSqm(value),
+  clamp: (value) => Math.max(0, value),
+});
+
 const marginLockedValue = el('span', 'head-val');
 const vkLockedValue = el('span', 'head-val');
 let headMode = null;
 let lastStd = null;
+let lastResult = null;
 
 /** Kasten mit Stift: bearbeitbar. */
 function editableHeadBox(inputEl) {
@@ -637,13 +652,13 @@ function openMargeDialog() {
   openDialog($('dlg-marge'));
 }
 
-function buildHeadSlots(vkMode) {
+function buildHeadSlots(vkMode, sqm) {
   const marginSlot = $('margin-slot');
   const vkSlot = $('vk-slot');
   marginSlot.replaceChildren();
   vkSlot.replaceChildren();
   if (vkMode) {
-    vkSlot.append(editableHeadBox(vkField.el));
+    vkSlot.append(editableHeadBox(sqm ? vkSqmField.el : vkField.el));
     marginSlot.append(lockedHeadBox(marginLockedValue, 'Marge manuell festlegen', () => openMargeDialog()));
   } else {
     marginSlot.append(editableHeadBox(marginField.el));
@@ -663,20 +678,22 @@ function updateHeader(result, page) {
     : 'Kein Ankauf möglich';
   sqmEl.classList.toggle('warn', !possible);
 
-  const key = page.vkMode ? 'vk' : 'std';
+  // Nicht EN: große Zahl im Verkaufspreis ist €/m², darunter der Gesamtbetrag. EN bleibt wie bisher.
+  const sqm = currentKind() !== 'en';
+  const key = (page.vkMode ? 'vk' : 'std') + (sqm ? '-sqm' : '');
   if (headMode !== key) {
     headMode = key;
-    buildHeadSlots(page.vkMode);
+    buildHeadSlots(page.vkMode, sqm);
   }
   if (page.vkMode) {
-    vkField.sync();
+    (sqm ? vkSqmField : vkField).sync();
     marginLockedValue.textContent = Fmt.percent(result.marginPercent);
   } else {
     marginField.sync();
-    vkLockedValue.textContent = Fmt.currency(result.salePrice);
+    vkLockedValue.textContent = sqm ? Fmt.perSqm(result.objectSalePricePerSqm) : Fmt.currency(result.salePrice);
   }
   $('h-margin-eur').textContent = Fmt.currency(result.marginEuro);
-  $('h-vk-sqm').textContent = Fmt.perSqm(result.objectSalePricePerSqm);
+  $('h-vk-sqm').textContent = sqm ? Fmt.currency(result.salePrice) : Fmt.perSqm(result.objectSalePricePerSqm);
   $('h-gik').textContent = Fmt.currency(result.totalInvestment);
 }
 
@@ -710,6 +727,7 @@ function render() {
   const result = page.vkMode
     ? applyManualSalePrice(std, page.manualSalePrice, page.parameters.salesCommission, page.inputs.livingArea)
     : std;
+  lastResult = result;
 
   updateHeader(result, page);
   for (const row of rows) row.update(result);
@@ -878,7 +896,8 @@ function init() {
     closeDialog($('dlg-vk'));
     changed();
     // Nach dem Schließen des Dialogs das Verkaufspreis-Feld fokussieren (Text wird markiert).
-    setTimeout(() => vkField.el.focus(), 0);
+    const focusField = currentKind() === 'en' ? vkField : vkSqmField;
+    setTimeout(() => focusField.el.focus(), 0);
   });
 
   formEl.addEventListener('pointerdown', tapOutsideBlurs);
