@@ -1,7 +1,7 @@
 // Tests für die Rechenlogik. Ausführen mit: node --test tests/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compute, Fmt, parseNumber, clampField, DEFAULT_INPUTS } from '../calc.js';
+import { compute, Fmt, parseNumber, clampField, DEFAULT_INPUTS, FIELDS, fieldDisplay } from '../calc.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
@@ -163,4 +163,13 @@ test('Marge-Begrenzung: -5 wird 0, 150 wird 100', () => {
   assert.equal(clampField('targetMargin', -5), 0);
   assert.equal(clampField('targetMargin', 150), 100);
   assert.equal(clampField('targetMargin', 20), 20);
+});
+
+test('Feldanzeige ohne Fokus mit Einheit und geschütztem Leerzeichen', () => {
+  assert.equal(fieldDisplay(FIELDS.salePrice, 250000), '250.000\u00A0€');
+  assert.equal(fieldDisplay(FIELDS.salePrice, 2000000), '2.000.000\u00A0€');
+  assert.equal(fieldDisplay(FIELDS.livingArea, 60), '60\u00A0m²');
+  assert.equal(fieldDisplay(FIELDS.targetYield, 4.5), '4,5\u00A0%');
+  assert.equal(fieldDisplay(FIELDS.salePricePerSqm, 4000), '4.000\u00A0€/m²');
+  assert.equal(fieldDisplay(FIELDS.rentPerSqm, 12), '12,00\u00A0€/m²');
 });

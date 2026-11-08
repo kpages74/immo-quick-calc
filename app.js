@@ -8,6 +8,7 @@ import {
   parseNumber,
   clampField,
   sliderFraction,
+  fieldDisplay,
 } from './calc.js';
 
 // Speicherschlüssel wie in CalcStore.swift.
@@ -147,13 +148,8 @@ function setHint(node, text) {
   node.hidden = !text;
 }
 
-/** Anzeige im Eingabefeld ohne Fokus, wie FieldText.display in der App. */
-function fieldText(spec, value) {
-  const number = Fmt.fieldNumber(value, spec.digits);
-  if (spec.unit === 'percent') return `${number} %`;
-  if (spec.unit === 'euroPerSqm') return `${number} €/m²`;
-  return number;
-}
+/** Anzeige im Eingabefeld ohne Fokus mit Einheit (calc.js fieldDisplay, wie in der App). */
+const fieldText = (spec, value) => fieldDisplay(spec, value);
 
 /** Schriftgröße so verkleinern, dass der Text in die Zelle passt (wie minimumScaleFactor). */
 function fitText(node) {
@@ -163,6 +159,37 @@ function fitText(node) {
   if (width > 0 && needed > width + 1) {
     const base = parseFloat(getComputedStyle(node).fontSize);
     node.style.fontSize = `${Math.max(base * 0.6, (base * width) / needed)}px`;
+  }
+}
+
+// Messfeld für Eingabefelder: gleiche Schrift wie die Pill, außerhalb des sichtbaren Layouts.
+let probe = null;
+
+/**
+ * Schriftgröße eines Eingabefeldes (Pill) so verkleinern, dass der Text ohne Auslassung passt.
+ * Mindestens 60 % der Grundgröße, wie minimumScaleFactor 0.6 in der App.
+ */
+function fitPill(input) {
+  input.style.fontSize = '';
+  const width = input.clientWidth;
+  if (width <= 0) return;
+  const cs = getComputedStyle(input);
+  if (!probe) {
+    probe = document.createElement('span');
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;left:-9999px;top:0;';
+    document.body.append(probe);
+  }
+  probe.style.fontFamily = cs.fontFamily;
+  probe.style.fontWeight = cs.fontWeight;
+  probe.style.fontVariantNumeric = 'tabular-nums';
+  probe.style.fontSize = cs.fontSize;
+  probe.textContent = input.value;
+  const avail = width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const needed = probe.getBoundingClientRect().width;
+  if (avail > 0 && needed > avail) {
+    const base = parseFloat(cs.fontSize);
+    input.style.fontSize = `${Math.max(base * 0.6, (base * avail * 0.98) / needed)}px`;
   }
 }
 
@@ -207,12 +234,14 @@ function numberField({ spec, get, set, header = false, display, clamp }) {
   function sync() {
     if (editStart === null) input.value = shown(get());
     fitWidth();
+    if (!header) fitPill(input);
   }
 
   input.addEventListener('focus', () => {
     editStart = Fmt.editingNumber(get());
     input.value = editStart;
     fitWidth();
+    if (!header) fitPill(input);
     input.select();
   });
 
@@ -352,9 +381,16 @@ function buildForm(kind) {
   rows = [];
   formEl.replaceChildren();
 
-  // Objekt: Wohnfläche zuerst.
-  const objectGroup = addGroup('Objekt');
-  addRow(objectGroup, inputRow('livingArea'));
+  // Kauf: alle Werte für den Ankauf, ohne Button.
+  const purchaseGroup = addGroup('Kauf');
+  addRow(purchaseGroup, inputRow('livingArea'));
+  if (state.settings.closingCostMode === 'euro') {
+    addRow(purchaseGroup, inputRow('closingCostsEuro'));
+  } else {
+    addRow(purchaseGroup, inputRow('closingCostsPercent', { hint: (r) => Fmt.currency(r.closingCosts) }));
+  }
+  addRow(purchaseGroup, inputRow('renovationCosts', { hint: (r) => Fmt.perSqm(r.renovationPerSqm) }));
+  addRow(purchaseGroup, inputRow('otherCosts'));
 
   // Verkauf mit Standard-Button (setzt die Parameter der Art zurück).
   const standard = el('button', 'std-btn', 'Standard');
@@ -367,6 +403,10 @@ function buildForm(kind) {
 
   if (kind === 'vermietet') {
     addRow(salesGroup, inputRow('salePricePerSqm', { hint: (r) => Fmt.currency(r.objectSalePrice) }));
+    addRow(salesGroup, inputRow('parkingSalePrice'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
+    addRow(salesGroup, inputRow('rent', { hint: (r) => Fmt.perSqm(r.currentRentPerSqm) }));
+    addRow(salesGroup, inputRow('parkingRent'));
   } else if (kind === 'kap') {
     addRow(salesGroup, lockedRow(FIELDS.salePricePerSqm.label, {
       hint: (r) => Fmt.currency(r.objectSalePrice),
@@ -374,28 +414,13 @@ function buildForm(kind) {
     }));
     addRow(salesGroup, inputRow('rentPerSqm', { hint: (r) => Fmt.currency(r.monthlyRent) }));
     addRow(salesGroup, inputRow('targetYield'));
+    addRow(salesGroup, inputRow('parkingSalePrice'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
   } else {
     addRow(salesGroup, inputRow('salePrice', { hint: (r) => Fmt.perSqm(r.objectSalePricePerSqm) }));
+    addRow(salesGroup, inputRow('parkingSalePrice'));
+    addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
   }
-  addRow(salesGroup, inputRow('parkingSalePrice'));
-  addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
-
-  // Miete: nur bei Vermietet.
-  if (kind === 'vermietet') {
-    const rentGroup = addGroup('Miete');
-    addRow(rentGroup, inputRow('rent', { hint: (r) => Fmt.perSqm(r.currentRentPerSqm) }));
-    addRow(rentGroup, inputRow('parkingRent'));
-  }
-
-  // Kosten.
-  const costGroup = addGroup('Kosten');
-  if (state.settings.closingCostMode === 'euro') {
-    addRow(costGroup, inputRow('closingCostsEuro'));
-  } else {
-    addRow(costGroup, inputRow('closingCostsPercent', { hint: (r) => Fmt.currency(r.closingCosts) }));
-  }
-  addRow(costGroup, inputRow('renovationCosts', { hint: (r) => Fmt.perSqm(r.renovationPerSqm) }));
-  addRow(costGroup, inputRow('otherCosts'));
 }
 
 function buildCell4(kind) {
@@ -570,6 +595,10 @@ function init() {
   });
 
   formEl.addEventListener('pointerdown', tapOutsideBlurs);
+  window.addEventListener('resize', () => {
+    for (const node of document.querySelectorAll('.pill')) fitPill(node);
+    for (const node of document.querySelectorAll('.fit')) fitText(node);
+  });
 
   syncSettings();
   render();

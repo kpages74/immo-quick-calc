@@ -260,6 +260,15 @@ export const Fmt = Object.freeze({
   },
 });
 
+/**
+ * Anzeige eines Zahlenfeldes ohne Fokus mit Einheit, wie FieldSpec.displayText in der App:
+ * „250.000 €“, „60 m²“, „10,0 %“, „4.000 €/m²“. Geschütztes Leerzeichen vor der Einheit.
+ */
+const FIELD_SUFFIX = Object.freeze({ euro: '€', euroPerSqm: '€/m²', squareMeter: 'm²', percent: '%' });
+export function fieldDisplay(spec, value) {
+  return Fmt.fieldNumber(value, spec.digits) + NBSP + FIELD_SUFFIX[spec.unit];
+}
+
 // MARK: - Zahleneingabe (NumberParser.swift)
 
 /**
