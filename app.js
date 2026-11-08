@@ -60,7 +60,9 @@ const PENCIL_SVG ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 // MARK: - Zustand
 
 function makePage(kind) {
-  return { inputs: { ...(kind === 'wg' ? DEFAULT_INPUTS_WG : DEFAULT_INPUTS) }, parameters: defaultParameters(kind) };
+  // Seiten-Standard: Hausgeld 300 € (laufende Kosten), sonst wie calc.js.
+  const inputs = { ...(kind === 'wg' ? DEFAULT_INPUTS_WG : DEFAULT_INPUTS), hausgeld: 300 };
+  return { inputs, parameters: defaultParameters(kind) };
 }
 
 const state = {
@@ -537,6 +539,28 @@ function buildForm(kind) {
     addRow(salesGroup, inputRow('parkingSalePrice'));
     addRow(salesGroup, inputRow('salesCommission', { hint: (r) => Fmt.currency(r.salesCommission) }));
   }
+
+  // Laufende Kosten während der Projektlaufzeit (alle Seiten). Mit Button „Standard“: Hausgeld 300 €, Strom/Heizung 0 €.
+  const operatingStandard = el('button', 'std-btn', 'Standard');
+  operatingStandard.type = 'button';
+  operatingStandard.addEventListener('click', () => {
+    currentPage().inputs.hausgeld = 300;
+    currentPage().inputs.heatingCosts = 0;
+    changed();
+  });
+  const operatingGroup = addGroup('Laufende Kosten', operatingStandard);
+  addRow(operatingGroup, inputRow('hausgeld'));
+  addRow(operatingGroup, inputRow('heatingCosts'));
+  if (kind === 'vermietet') {
+    addRow(operatingGroup, lockedRow('Mieteinnahmen p. M.', {
+      hint: () => null,
+      value: (r) => Fmt.currency(r.rentalIncome),
+    }));
+  }
+  addRow(operatingGroup, lockedRow('Laufende Kosten gesamt', {
+    hint: () => `für ${Fmt.fieldNumber(state.financing.durationMonths, 0)} Monate`,
+    value: (r) => Fmt.currency(r.holdingCosts),
+  }));
 
   // Finanzierung: global für alle Seiten, letzte Gruppe. Mit Button „Standard“.
   const financingStandard = el('button', 'std-btn', 'Standard');

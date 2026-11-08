@@ -35,7 +35,7 @@ test('VPS vermietet: Soll-Miete, Objektpreis, VK, EK und Sanierung/m²', () => {
     otherCosts: 0,
   });
   const params = { ...RENT_PARAMS, salesCommission: 10 };
-  const r = compute('vermietet', inputs, params, PERCENT);
+  const r = compute('vermietet', inputs, params, PERCENT, { ...DEFAULT_FINANCING, loanPercent: 0, durationMonths: 0 });
 
   // Objekt = 1.150 × 12 / 0,045 = 306.666,67; Stellplatz = 50 × 12 / 0,045 = 13.333,33; VK = 320.000
   assert.equal(round2(r.objectSalePrice), 306666.67);
@@ -56,7 +56,7 @@ test('T2 vermietet: Objektpreis 306.666,67, VK 320.000, M 64.000, EK 230.630,63'
     renovationCosts: 0,
     otherCosts: 0,
   });
-  const r = compute('vermietet', inputs, RENT_PARAMS, PERCENT);
+  const r = compute('vermietet', inputs, RENT_PARAMS, PERCENT, { ...DEFAULT_FINANCING, loanPercent: 0, durationMonths: 0 });
 
   assert.equal(round2(r.objectSalePrice), 306666.67);
   assert.equal(round2(r.salePrice), 320000);
@@ -381,5 +381,43 @@ test('WG Feldanzeige mit Einheit Zimmer/Stk. und Anzeige je Zimmer', () => {
   assert.equal(fieldDisplay(FIELDS.wgParkingCount, 0), '0\u00A0Stk.');
   assert.equal(Fmt.perRoom(276923.08, 3), '92.307,69\u00A0€ je Zimmer');
   assert.equal(Fmt.perRoom(null, 3), '–');
+});
+
+// Laufende Kosten während der Projektlaufzeit (Prüfwerte wie in CalcKindTests.swift, OperatingCostsTests)
+test('T-H1 Excel-Abgleich Vermietet mit laufenden Kosten: EK 121.198,35, H −921,16', () => {
+  const inputs = { ...DEFAULT_INPUTS, rent: 494.04, livingArea: 69, parkingRent: 56.25, closingCostsPercent: 10.6,
+    renovationCosts: 1000, otherCosts: 1000, hausgeld: 320, heatingCosts: 0 };
+  const params = { targetMargin: 6.784676711574065, salesCommission: 10, rentPerSqm: 12, targetYield: 4.5, rentSurchargePercent: 15 };
+  const fin = { loanPercent: 100, interestPercent: 5.5, repaymentPercent: 1.5, repaymentEnabled: false, durationMonths: 4, processingFeePercent: 1 };
+  const r = compute('vermietet', inputs, params, PERCENT, fin);
+  assert.equal(round2(r.salePrice), 166505.6);
+  assert.equal(round2(r.marginEuro), 11296.87);
+  assert.equal(round2(r.rentalIncome), 550.29);
+  assert.equal(round2(r.holdingCosts), -921.16);
+  assert.equal(round2(r.maxPurchasePrice), 121198.35);
+  assert.equal(Fmt.currency(r.holdingCosts), '-921,16\u00A0€');
+});
+
+test('T-H2 EN: Hausgeld 300 + Strom 100, 6 Monate → H 2.400; EK sinkt um 2.400 / 1,11', () => {
+  const base = { ...DEFAULT_INPUTS, salePrice: 300000, livingArea: 60, closingCostsPercent: 11, renovationCosts: 20000, otherCosts: 0, hausgeld: 0, heatingCosts: 0 };
+  const withCosts = { ...base, hausgeld: 300, heatingCosts: 100 };
+  const params = { targetMargin: 17, salesCommission: 0, rentPerSqm: 12, targetYield: 4.5, rentSurchargePercent: 15 };
+  const fin = { ...DEFAULT_FINANCING, loanPercent: 0, durationMonths: 6 };
+  const without = compute('en', base, params, PERCENT, fin);
+  const r = compute('en', withCosts, params, PERCENT, fin);
+  assert.equal(round2(r.holdingCosts), 2400);
+  assert.equal(round2(r.rentalIncome), 0);
+  assert.equal(round2(without.maxPurchasePrice - r.maxPurchasePrice), 2162.16);
+});
+
+test('T-H3 Laufende Kosten: Grenzen, Schritt und Anzeige; Standard Hausgeld 300 €, Strom 0 €', () => {
+  assert.equal(FIELDS.hausgeld.min, 0);
+  assert.equal(FIELDS.hausgeld.max, 2000);
+  assert.equal(FIELDS.hausgeld.step, 10);
+  assert.equal(FIELDS.heatingCosts.max, 1000);
+  assert.equal(fieldDisplay(FIELDS.hausgeld, 300), '300\u00A0€');
+  assert.equal(fieldDisplay(FIELDS.heatingCosts, 0), '0\u00A0€');
+  assert.equal(FIELDS.hausgeld.label, 'Hausgeld p. M.');
+  assert.equal(FIELDS.heatingCosts.label, 'Strom + Heizung p. M.');
 });
 

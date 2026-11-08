@@ -22,6 +22,10 @@ export const DEFAULT_INPUTS = Object.freeze({
   wgRooms: 3,
   wgRoomRent: 500,
   wgParkingCount: 0,
+  // Laufende Kosten während der Projektlaufzeit (Standard Hausgeld 300 €; Strom/Heizung 0 €).
+  // Neutrale Eingabe in compute: fehlt das Feld, gilt 0. Der Seiten-Standard steht in makePage (app.js).
+  hausgeld: 0,
+  heatingCosts: 0,
 });
 
 /** Standardwerte der Seite WG: Miete je Stellplatz 50 €. */
@@ -91,6 +95,9 @@ export const FIELDS = Object.freeze({
   wgRenovation: { label: 'Sanierungskosten', unit: 'euro', min: 0, max: 100000, step: 500, digits: 0 },
   wgOther: { label: 'Sonstige Kosten', unit: 'euro', min: 0, max: 100000, step: 500, digits: 0 },
   wgYield: { label: 'Rendite Käufer', unit: 'percent', min: 1, max: 15, step: 0.1, digits: 1 },
+  // Laufende Kosten (je Monat, Projektlaufzeit).
+  hausgeld: { label: 'Hausgeld p. M.', unit: 'euro', min: 0, max: 2000, step: 10, digits: 0 },
+  heatingCosts: { label: 'Strom + Heizung p. M.', unit: 'euro', min: 0, max: 1000, step: 10, digits: 0 },
 });
 
 /** Begrenzt einen Wert auf den Bereich des Feldes (z. B. Zielmarge 0…100). */
@@ -136,6 +143,8 @@ function emptyResult(extra) {
     renovationPerSqm: null,
     monthlyRent: null,
     isPurchasePossible: false,
+    rentalIncome: null,
+    holdingCosts: null,
     ...extra,
   };
 }
@@ -240,17 +249,22 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
   const rate = ((z + t) * months) / 12;
   const financingFactor = f * (rate + b);
 
+  // 4b. Laufende Kosten während der Projektlaufzeit: H = (Hausgeld + Strom/Heizung − Mieteinnahmen) × Monate.
+  //     Mieteinnahmen gibt es nur bei Vermietet (Ist-Miete + Stellplatzmiete), sonst 0.
+  const rentalIncome = kind === KIND.VERMIETET ? rent + parking : 0;
+  const holdingCosts = (nonNegative(inputs.hausgeld) + nonNegative(inputs.heatingCosts) - rentalIncome) * months;
+
   // 5. Maximaler Einkaufspreis (EK). Finanzierung mindert den EK, die Zielmarge bleibt.
   //    Zähler <= 0: wie ohne Finanzierung, Finanzierungskosten 0.
   let maxPurchase;
   let financed;
   if (percentMode) {
-    const numerator = netto - marginEuro - k;
+    const numerator = netto - marginEuro - k - holdingCosts;
     const p = closingPercent / 100;
     financed = numerator > 0;
     maxPurchase = financed ? numerator / (1 + p + financingFactor) : numerator / (1 + p);
   } else {
-    const numerator = netto - marginEuro - closingEuro - k;
+    const numerator = netto - marginEuro - closingEuro - k - holdingCosts;
     financed = numerator > 0;
     maxPurchase = financed ? numerator / (1 + financingFactor) : numerator;
   }
@@ -311,6 +325,8 @@ export function compute(kind, inputs, params, settings, financing = NO_FINANCING
     renovationPerSqm,
     monthlyRent,
     isPurchasePossible: maxPurchase > 0,
+    rentalIncome,
+    holdingCosts,
   };
 }
 
